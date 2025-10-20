@@ -47,3 +47,6 @@
 .mtc
 build/
 images/
+
+##TestData
+TestAudio/*
