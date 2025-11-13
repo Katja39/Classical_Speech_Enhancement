@@ -68,13 +68,15 @@
 %wavplay(y_dist,fs); 
 
 %Echo
-[y, fs] = audioread('snd5.wav');
+%[y, fs] = audioread('snd5.wav');
+%
+%r = round(0.3 * fs);    % Verzögerung 0.3
+%a = 0.6;                % Lautstärke
+%
+%y_echo = y;             
+%y_echo(r+1:end) = y_echo(r+1:end) + a * y(1:end-r); 
+%
+%wavplay(y_echo,fs);
 
-r = round(0.3 * fs);    % Verzögerung 0.3
-a = 0.6;                % Lautstärke
 
-y_echo = y;             
-y_echo(r+1:end) = y_echo(r+1:end) + a * y(1:end-r); 
-
-wavplay(y_echo,fs);
 
