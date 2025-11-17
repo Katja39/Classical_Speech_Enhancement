@@ -6,6 +6,7 @@ from pystoi import stoi
 
 import sounddevice as sd
 
+
 def spectral_subtraction(noisy_audio, sr, noise_start=0, noise_end=0.1,
                          alpha=2.0, beta=0.01, n_fft=1024, hop_length=256):
 
@@ -43,13 +44,65 @@ def spectral_subtraction(noisy_audio, sr, noise_start=0, noise_end=0.1,
     return clean_audio
 
 
+def optimize_parameters(clean_reference, noisy_audio, sr):
+    # Test different parameters to improve stoi value
+
+    print("\n" + "=" * 60)
+    print("Parameter Optimazation")
+    print("=" * 60)
+
+    best_stoi = 0
+    best_params = {}
+    best_enhanced = None
+
+    ######################################
+    # Test different parameter combinations, change the parameter if necessary
+    ######################################
+    alpha_values = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
+    beta_values = [0.001, 0.005, 0.01, 0.02, 0.05]
+    n_fft_values = [512, 1024]
+
+    total_combinations = len(alpha_values) * len(beta_values) * len(n_fft_values)
+    current_combination = 0
+
+    print(f"Testing {total_combinations} parameter combinations")
+
+    for alpha in alpha_values:
+        for beta in beta_values:
+            for n_fft in n_fft_values:
+                current_combination += 1
+
+                enhanced = spectral_subtraction(
+                    noisy_audio, sr,
+                    alpha=alpha,
+                    beta=beta,
+                    n_fft=n_fft,
+                    noise_start=0,
+                    noise_end=0.1
+                )
+
+                # Evaluate STOI
+                min_length = min(len(clean_reference), len(enhanced))
+                stoi_score = stoi(clean_reference[:min_length], enhanced[:min_length], sr, extended=False)
+
+                if stoi_score > best_stoi:
+                    best_stoi = stoi_score
+                    best_params = {'alpha': alpha, 'beta': beta, 'n_fft': n_fft}
+                    best_enhanced = enhanced
+
+                # Progress indicator
+                if current_combination % 10 == 0:
+                    print(f"  Progress: {current_combination}/{total_combinations} - Best STOI: {best_stoi:.4f}")
+
+    print(f"\nOptimal parameters:")
+    print(f"  Alpha: {best_params['alpha']}, Beta: {best_params['beta']}, N_FFT: {best_params['n_fft']}")
+    print(f"  Best STOI: {best_stoi:.4f}")
+    print("=" * 60)
+
+    return best_enhanced, best_params, best_stoi
+
+
 def stoi_evaluation(clean_reference, noisy_audio, enhanced_audio, sr):
-
-    # STOI
-    # Intrusive metric that estimates speech intelligibility by comparing clean and degraded signals
-    # STOI analyzes the spectral structure of speech
-    # As long as key speech frequencies (especially 500–4000 Hz) remain identifiable, the score stays high
-
     try:
         # Adjust all signals to same length
         min_length = min(len(clean_reference), len(noisy_audio), len(enhanced_audio))
@@ -68,23 +121,10 @@ def stoi_evaluation(clean_reference, noisy_audio, enhanced_audio, sr):
         improvement_percent = (improvement / stoi_noisy) * 100
 
         print("\n" + "=" * 60)
-        print("Stoi \n")
         print("Comparison with clean reference signal:")
         print(f"  Noisy (Original) vs Clean:    {stoi_noisy:.4f}")
         print(f"  Enhanced (Processed) vs Clean: {stoi_enhanced:.4f}")
         print(f"  Improvement by spectral subtraction algorithm:      +{improvement:.4f} ({improvement_percent:+.1f}%)")
-
-        # Interpretation
-        print("\nINTERPRETATION:")
-        print(f"  Noisy quality:    {interpret_stoi(stoi_noisy)}")
-        print(f"  Enhanced quality: {interpret_stoi(stoi_enhanced)}")
-
-        if improvement > 0:
-            print(f"  SUCCESS: Algorithm improves speech intelligibility!")
-        else:
-            print(f"  PROBLEM: Algorithm reduces quality!")
-
-        print("=" * 60)
 
         return {
             'stoi_noisy': stoi_noisy,
@@ -115,11 +155,11 @@ def test_algorithm():
 
     print("Loading audio files")
 
-    # 1. Load noisy signal
+    # Load noisy signal
     noisy, sr = librosa.load("p232_014_noiseWithMusic.wav", sr=16000)
     print(f"Noisy audio loaded: {len(noisy)} samples, {sr} Hz")
 
-    # 2. Load clean reference
+    # Load clean reference
     clean_reference, sr_clean = librosa.load("p232_014_clean.wav", sr=16000)
     print(f"Clean reference loaded: {len(clean_reference)} samples, {sr_clean} Hz")
 
@@ -130,55 +170,47 @@ def test_algorithm():
         if sr_clean != 16000:
             clean_reference = librosa.resample(clean_reference, orig_sr=sr_clean, target_sr=sr)
 
-    # 3. Apply Spectral Subtraction
-    print("Applying Spectral Subtraction...")
-    enhanced = spectral_subtraction(noisy, sr)
-    print(f"Enhanced audio created: {len(enhanced)} samples")
+    # Apply Spectral Subtraction with optimization
 
-    # 4. Save the denoised signal
-    denoised_path = os.path.join(current_dir, "p232_014_noiseWithMusic_denoised.wav")
+    # Get baseline with default parameters
+    enhanced_default = spectral_subtraction(noisy, sr)
+    baseline_results = stoi_evaluation(clean_reference, noisy, enhanced_default, sr)
+
+    # Optimize parameters
+    enhanced_optimized, optimal_params, best_stoi = optimize_parameters(clean_reference, noisy, sr)
+
+    # Evaluate optimized result
+    optimized_results = stoi_evaluation(clean_reference, noisy, enhanced_optimized, sr)
+
+    # Save the optimized denoised signal
+    denoised_path = os.path.join(current_dir, "p232_014_noiseWithMusic_spectralSubtractor_denoised_optimized.wav")
     import soundfile as sf
-    sf.write(denoised_path, enhanced, sr)
-    print(f"Denoised audio saved: {denoised_path}")
+    sf.write(denoised_path, enhanced_optimized, sr)
+    print(f"Optimized denoised audio saved: {denoised_path}")
 
-    # 5. QUALITY ASSESSMENT WITH CLEAN REFERENCE
-    results = stoi_evaluation(clean_reference, noisy, enhanced, sr)
+    #Audio playback
+    #print("\nAudio comparison (optional):")
+    #print("Playing Noisy signal...")
+    #sd.play(noisy, sr)
+    #sd.wait()
+    #print("Playing Enhanced signal...")
+    #sd.play(enhanced_optimized, sr)
+    #sd.wait()
+    #print("Playing Clean Reference...")
+    #sd.play(clean_reference, sr)
+    #sd.wait()
 
-    # 6. Audio playback (optional)
-    #try:
-    #    print("\nAudio comparison (optional):")
-    #    print("Playing Noisy signal...")
-    #    sd.play(noisy, sr)
-    #    sd.wait()
-#
-    #    print("Playing Enhanced signal...")
-    #    sd.play(enhanced, sr)
-    #    sd.wait()
-#
-    #    print("Playing Clean Reference...")
-    #    sd.play(clean_reference, sr)
-    #    sd.wait()
-    #except Exception as e:
-    #    print(f"Audio playback not available: {e}")
-
-    return noisy, enhanced, sr, results
+    return noisy, enhanced_optimized, sr, optimized_results
 
 
 def main():
-    print("Starting Spectral Subtraction with QUALITY EVALUATION")
+    print("Spectral Subtraction Algorithm")
     print("=" * 60)
     try:
         noisy, enhanced, sr, results = test_algorithm()
 
-        if results:
-            print(f"\nSUMMARY:")
-            print(f"Initial quality (Noisy): {results['stoi_noisy']:.4f}")
-            print(f"Final quality (Enhanced): {results['stoi_enhanced']:.4f}")
-            print(f"Quality improvement: {results['improvement']:.4f} ({results['improvement_percent']:+.1f}%)")
-
     except Exception as e:
         print(f"Error: {e}")
-
 
 if __name__ == "__main__":
     main()
