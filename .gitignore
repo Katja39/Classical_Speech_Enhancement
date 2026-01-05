@@ -50,3 +50,5 @@ images/
 
 ##TestData
 TestAudio/*
+*.pyc
+*.wav

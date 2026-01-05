@@ -3,7 +3,9 @@ import numpy as np
 import librosa
 from scipy.special import i0, i1
 
+import soundfile as sf
 from evaluation_metrics import evaluate_audio_quality, optimize_parameters
+from load_files import load_clean_noisy, default_out_dir
 
 def mmse(noisy_audio, sr,
          noise_start=0.0, noise_end=0.1,
@@ -107,62 +109,41 @@ def mmse(noisy_audio, sr,
 
     return clean_audio
 
-def test_mmse():
-    """Test function for MMSE estimator"""
-    # Load test signals
-    current_dir = os.path.dirname(os.path.abspath(__file__))
+def test_mmse(clean_path=None, noisy_path=None, data_dir="data", out_dir=None, stem="sample"):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
 
-    print("Loading audio files for MMSE")
+    if clean_path is None or noisy_path is None:
+        data_dir = os.path.join(base_dir, data_dir)
+        clean_path = os.path.join(data_dir, "p232_014_clean.wav")
+        noisy_path = os.path.join(data_dir, "p232_014_noiseWithMusic.wav")
+        stem = "p232_014"
 
-    # Load noisy signal
-    noisy, sr = librosa.load("p232_014_noiseWithMusic.wav", sr=16000)
-    print(f"Noisy audio loaded: {len(noisy)} samples, {sr} Hz")
+    if out_dir is None:
+        out_dir = default_out_dir(base_dir, "results_mmse")
 
-    # Load clean reference
-    clean_reference, sr_clean = librosa.load("p232_014_clean.wav", sr=16000)
-    print(f"Clean reference loaded: {len(clean_reference)} samples, {sr_clean} Hz")
+    clean_reference, noisy, sr = load_clean_noisy(clean_path, noisy_path, target_sr=16000)
 
-    # Check sampling rates
-    if sr != sr_clean:
-        print(f"Warning: Different sampling rates - Noisy: {sr}Hz, Clean: {sr_clean}Hz")
-        if sr_clean != 16000:
-            clean_reference = librosa.resample(clean_reference, orig_sr=sr_clean, target_sr=sr)
-
-    # Define parameter ranges for MMSE optimization
     param_ranges = {
-        'alpha': [0.85, 0.9, 0.92, 0.94, 0.96, 0.98],
+        'alpha': [0.85, 0.9, 0.94, 0.96, 0.98],#0.92
         'n_fft': [512, 1024],
         'hop_length': [128, 256],
         'ksi_min': [0.001, 0.01, 0.05]
     }
 
-    # Optimize parameters
     print("\nStarting MMSE parameter optimization...")
     optimization_results = optimize_parameters(clean_reference, noisy, sr, mmse, param_ranges)
 
     # Evaluate both optimized results
-    print("\nEvaluating optimized results...")
-    stoi_results = evaluate_audio_quality(
-        clean_reference, noisy, optimization_results['stoi']['enhanced'], sr,
-        "MMSE (STOI optimized)"
-    )
+    stoi_results = evaluate_audio_quality(clean_reference, noisy, optimization_results['stoi']['enhanced'], sr,
+                                         "MMSE (STOI optimized)")
+    pesq_results = evaluate_audio_quality(clean_reference, noisy, optimization_results['pesq']['enhanced'], sr,
+                                         "MMSE (PESQ optimized)")
 
-    pesq_results = evaluate_audio_quality(
-        clean_reference, noisy, optimization_results['pesq']['enhanced'], sr,
-        "MMSE (PESQ optimized)"
-    )
-
-    # Save both optimized denoised signals
-    import soundfile as sf
-    denoised_stoi_path = os.path.join(current_dir, "p232_014_mmse_denoised_optimized_stoi.wav")
-    denoised_pesq_path = os.path.join(current_dir, "p232_014_mmse_denoised_optimized_pesq.wav")
-
-    sf.write(denoised_stoi_path, optimization_results['stoi']['enhanced'], sr)
-    sf.write(denoised_pesq_path, optimization_results['pesq']['enhanced'], sr)
-
-    print(f"\nOptimized denoised audio saved:")
-    print(f"  STOI optimized: {denoised_stoi_path}")
-    print(f"  PESQ optimized: {denoised_pesq_path}")
+    # Save
+    stoi_path = os.path.join(out_dir, f"{stem}_mmse_optimized_stoi.wav")
+    pesq_path = os.path.join(out_dir, f"{stem}_mmse_optimized_pesq.wav")
+    sf.write(stoi_path, optimization_results['stoi']['enhanced'], sr)
+    sf.write(pesq_path, optimization_results['pesq']['enhanced'], sr)
 
     return noisy, optimization_results, sr, stoi_results
 

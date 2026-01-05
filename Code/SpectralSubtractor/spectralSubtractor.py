@@ -1,7 +1,11 @@
 import os
+import soundfile as sf
+
 import numpy as np
 import librosa
-from evaluation_metrics import calculate_pesq, calculate_stoi, evaluate_audio_quality, optimize_parameters
+
+from evaluation_metrics import optimize_parameters, evaluate_audio_quality
+from load_files import load_clean_noisy, default_out_dir
 
 
 def spectral_subtraction(noisy_audio, sr, noise_start=0, noise_end=0.1,
@@ -40,60 +44,39 @@ def spectral_subtraction(noisy_audio, sr, noise_start=0, noise_end=0.1,
     return clean_audio
 
 
-def test_spectral_subtraction():
-    # Load test signals
-    current_dir = os.path.dirname(os.path.abspath(__file__))
+def test_spectral_subtraction(clean_path=None, noisy_path=None, data_dir="data", out_dir=None, stem="sample"):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
 
-    print("Loading audio files for Spectral Subtraction")
+    if clean_path is None or noisy_path is None:
+        data_dir = os.path.join(base_dir, data_dir)
+        clean_path = os.path.join(data_dir, "p232_014_clean.wav")
+        noisy_path = os.path.join(data_dir, "p232_014_noiseWithMusic.wav")
+        stem = "p232_014"
 
-    # Load noisy signal
-    noisy, sr = librosa.load("p232_014_noiseWithMusic.wav", sr=16000)
-    print(f"Noisy audio loaded: {len(noisy)} samples, {sr} Hz")
+    if out_dir is None:
+        out_dir = default_out_dir(base_dir, "results_spectralSubtractor")
 
-    # Load clean reference
-    clean_reference, sr_clean = librosa.load("p232_014_clean.wav", sr=16000)
-    print(f"Clean reference loaded: {len(clean_reference)} samples, {sr_clean} Hz")
+    clean_reference, noisy, sr = load_clean_noisy(clean_path, noisy_path, target_sr=16000)
 
-    # Check sampling rates
-    if sr != sr_clean:
-        print(f"Warning: Different sampling rates - Noisy: {sr}Hz, Clean: {sr_clean}Hz")
-        if sr_clean != 16000:
-            clean_reference = librosa.resample(clean_reference, orig_sr=sr_clean, target_sr=sr)
-
-    # Define parameter ranges for optimization
     param_ranges = {
         'alpha': [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0],
         'beta': [0.001, 0.005, 0.01, 0.02, 0.05],
-        'n_fft': [512, 1024]
+        'n_fft': [512, 1024],
+        'hop_length': [128, 256],
     }
 
-    # Optimize parameters
-    optimization_results = optimize_parameters(
-        clean_reference, noisy, sr, spectral_subtraction, param_ranges
-    )
+    print("\nStarting Spectral Subtraction parameter optimization...")
+    optimization_results = optimize_parameters(clean_reference, noisy, sr, spectral_subtraction, param_ranges)
 
-    # Evaluate both optimized results
-    stoi_results = evaluate_audio_quality(
-        clean_reference, noisy, optimization_results['stoi']['enhanced'], sr,
-        "Spectral Subtraction (STOI optimized)"
-    )
+    stoi_results = evaluate_audio_quality(clean_reference, noisy, optimization_results['stoi']['enhanced'], sr,
+                                         "Spectral Subtraction (STOI optimized)")
+    pesq_results = evaluate_audio_quality(clean_reference, noisy, optimization_results['pesq']['enhanced'], sr,
+                                         "Spectral Subtraction (PESQ optimized)")
 
-    pesq_results = evaluate_audio_quality(
-        clean_reference, noisy, optimization_results['pesq']['enhanced'], sr,
-        "Spectral Subtraction (PESQ optimized)"
-    )
-
-    # Save both optimized denoised signals
-    import soundfile as sf
-    denoised_stoi_path = os.path.join(current_dir, "p232_014_spectralSubtractor_denoised_optimized_stoi.wav")
-    denoised_pesq_path = os.path.join(current_dir, "p232_014_spectralSubtractor_denoised_optimized_pesq.wav")
-
-    sf.write(denoised_stoi_path, optimization_results['stoi']['enhanced'], sr)
-    sf.write(denoised_pesq_path, optimization_results['pesq']['enhanced'], sr)
-
-    print(f"\nOptimized denoised audio saved:")
-    print(f"  STOI optimized: {denoised_stoi_path}")
-    print(f"  PESQ optimized: {denoised_pesq_path}")
+    stoi_path = os.path.join(out_dir, f"{stem}_spectralSubtractor_optimized_stoi.wav")
+    pesq_path = os.path.join(out_dir, f"{stem}_spectralSubtractor_optimized_pesq.wav")
+    sf.write(stoi_path, optimization_results['stoi']['enhanced'], sr)
+    sf.write(pesq_path, optimization_results['pesq']['enhanced'], sr)
 
     return noisy, optimization_results, sr, stoi_results
 
