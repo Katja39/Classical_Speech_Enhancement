@@ -52,3 +52,4 @@ images/
 TestAudio/*
 *.pyc
 *.wav
+*.xlsx
