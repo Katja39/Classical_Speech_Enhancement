@@ -4,15 +4,15 @@ import librosa
 from scipy.special import i0, i1
 
 import soundfile as sf
-from evaluation_metrics import evaluate_audio_quality, optimize_parameters
+from evaluation_metrics import evaluate_audio_quality
+from speech_enhancement_comparison import optimize_parameters
 from load_files import load_clean_noisy, default_out_dir
 
-def mmse(noisy_audio, sr,
-         noise_start=0.0, noise_end=0.1,
-         n_fft=1024, hop_length=256,
-         alpha=0.98, ksi_min=0.001,
-         gain_min=0.001, gain_max=1.0,
-         v_max=80.0):
+from noise_estimation import noise_estimation
+
+from parameter_ranges import param_ranges_mmse
+
+def mmse(noisy_audio, sr, alpha, ksi_min, gain_min, gain_max, n_fft, hop_length, noise_percentile, noise_method):
     """
     Classic Ephraim-Malah MMSE-STSA speech enhancement
 
@@ -26,23 +26,23 @@ def mmse(noisy_audio, sr,
 
     eps = 1e-10
 
-    # 1) Noise estimation from initial segment
-    ns = int(max(0.0, noise_start) * sr)
-    ne = int(max(noise_end, noise_start) * sr)
-    ne = min(ne, original_length)
-    if ne <= ns:
-        # Fallback: if segment invalid, use a short initial chunk
-        ns, ne = 0, min(int(0.1 * sr), original_length)
-
-    noise_segment = noisy_audio[ns:ne]
-
-    # 2) STFT
+    # 1) STFT (noisy)
     stft_noisy = librosa.stft(noisy_audio, n_fft=n_fft, hop_length=hop_length, win_length=n_fft)
-    stft_noise = librosa.stft(noise_segment, n_fft=n_fft, hop_length=hop_length, win_length=n_fft)
+
+    # 2) Noise estimation
+    power_noise = noise_estimation(
+        noisy_audio,
+        sr=sr,
+        n_fft=n_fft,
+        hop_length=hop_length,
+        win_length=n_fft,
+        percentile=noise_percentile,
+        method=noise_method,
+        eps=eps
+    )
 
     # 3) Power spectra
     power_noisy = np.abs(stft_noisy) ** 2
-    power_noise = np.mean(np.abs(stft_noise) ** 2, axis=1, keepdims=True)  # λ_d(k)
 
     # Guard against zero noise power
     power_noise = np.maximum(power_noise, eps)
@@ -76,7 +76,7 @@ def mmse(noisy_audio, sr,
         v = (ksi * gamma) / (1.0 + ksi)
 
         # Numerical clipping for stability
-        v = np.clip(v, 1e-12, v_max)
+        v = np.clip(v, 1e-12, 80.0)
 
         # Classic Ephraim-Malah MMSE-STSA gain:
         # G = (sqrt(pi)/2) * sqrt(v)/γ * exp(-v/2) * [(1+v)I0(v/2) + v I1(v/2)]
@@ -123,15 +123,10 @@ def test_mmse(clean_path=None, noisy_path=None, data_dir="data", out_dir=None, s
 
     clean_reference, noisy, sr = load_clean_noisy(clean_path, noisy_path, target_sr=16000)
 
-    param_ranges = {
-        'alpha': [0.85, 0.9, 0.94, 0.96, 0.98],#0.92
-        'n_fft': [512, 1024],
-        'hop_length': [128, 256],
-        'ksi_min': [0.001, 0.01, 0.05]
-    }
-
     print("\nStarting MMSE parameter optimization...")
-    optimization_results = optimize_parameters(clean_reference, noisy, sr, mmse, param_ranges)
+    optimization_results = optimize_parameters(
+        clean_reference, noisy, sr, mmse, param_ranges_mmse
+    )
 
     # Evaluate both optimized results
     stoi_results = evaluate_audio_quality(clean_reference, noisy, optimization_results['stoi']['enhanced'], sr,

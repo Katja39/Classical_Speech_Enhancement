@@ -1,298 +1,202 @@
 import os
 import re
 import json
-import random
 import numpy as np
 import librosa
 import soundfile as sf
 from itertools import product
 
-from pystoi import stoi
-import pesq
+from parameter_ranges import param_ranges_ss, param_ranges_mmse, param_ranges_wiener, param_ranges_omlsa
 
-#Algorithms
-from spectralSubtractor import spectral_subtraction
-from mmse import mmse
-from wiener_filter import wiener_filter
-from advanced_mmse import advanced_mmse
+from evaluation_metrics import calculate_pesq, calculate_stoi
 
-#--resume
-#--fast - faster, but less accurate
 
-def calculate_pesq(clean_reference, test_audio, sr):
-    try:
-        min_length = min(len(clean_reference), len(test_audio))
-        clean_trimmed = clean_reference[:min_length]
-        test_trimmed = test_audio[:min_length]
-
-        # PESQ requires 8000 Hz or 16000 Hz
-        if sr == 16000:
-            mode = 'wb'  # Wideband
-            sr_pesq = 16000
-        elif sr == 8000:
-            mode = 'nb'  # Narrowband
-            sr_pesq = 8000
-        else:
-            # Resample to 16000 Hz for PESQ if not supported
-            clean_trimmed = librosa.resample(clean_trimmed, orig_sr=sr, target_sr=16000)
-            test_trimmed = librosa.resample(test_trimmed, orig_sr=sr, target_sr=16000)
-            mode = 'wb'
-            sr_pesq = 16000
-
-        return pesq.pesq(sr_pesq, clean_trimmed, test_trimmed, mode)
-    except Exception as e:
-        print(f"PESQ calculation failed: {e}")
-        return None
-
-def calculate_stoi(clean_reference, test_audio, sr):
-    try:
-        min_length = min(len(clean_reference), len(test_audio))
-        return stoi(clean_reference[:min_length], test_audio[:min_length], sr, extended=False)
-    except Exception as e:
-        print(f"STOI calculation failed: {e}")
-        return None
-
-def optimize_parameters_smart(clean_reference, noisy_audio, sr, algorithm_function, param_ranges,
-                              max_iterations=50, early_stop_threshold=0.7):
-    """
-    Intelligent multi-stage parameter optimization with early stopping
-    Returns separate optimizations for STOI and PESQ
-    """
-
+def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, param_ranges):
     print(f"\n{'=' * 60}")
-    print(f"Smart Parameter Optimization")
+    print("Parameter Optimization")
     print(f"{'=' * 60}")
 
-    # Baseline STOI für noisy audio
     baseline_stoi = calculate_stoi(clean_reference, noisy_audio, sr) or 0
     baseline_pesq = calculate_pesq(clean_reference, noisy_audio, sr) or 0
 
     print(f"Baseline - STOI: {baseline_stoi:.4f}, PESQ: {baseline_pesq:.2f}")
 
-    # STAGE 1: Coarse grid search for STOI
-    print("\nStage 1: Coarse grid search (STOI)...")
-    coarse_stoi_params, coarse_stoi_score, coarse_stoi_enhanced = _grid_search_with_early_stop(
-        clean_reference, noisy_audio, sr, algorithm_function, param_ranges,
-        baseline_score=baseline_stoi, threshold=early_stop_threshold,
-        metric='stoi'
-    )
+    best_stoi = -1
+    best_pesq = -1
+    best_params_stoi = {}
+    best_params_pesq = {}
+    best_enhanced_stoi = None
+    best_enhanced_pesq = None
 
-    # STAGE 2: Local random search around best STOI
-    print("\nStage 2: Local random search (STOI)...")
-    best_stoi_params, best_stoi_score, best_stoi_enhanced = _random_search(
-        clean_reference, noisy_audio, sr, algorithm_function,
-        coarse_stoi_params, param_ranges, center_score=coarse_stoi_score,
-        iterations=20, metric='stoi'
-    )
+    param_combinations = list(product(*param_ranges.values()))
+    param_names = list(param_ranges.keys())
+    total_combinations = len(param_combinations)
 
-    # STAGE 3: Coarse grid search for PESQ (starting from STOI-optimal)
-    print("\nStage 3: Fine search around STOI-opt for PESQ...")
-    best_pesq_params, best_pesq_score, best_pesq_enhanced = _random_search(
-        clean_reference, noisy_audio, sr, algorithm_function,
-        best_stoi_params, param_ranges, center_score=0,
-        iterations=15, metric='pesq'
-    )
-
-    # Display results
-    print(f"\nOptimal Parameters for STOI:")
-    print(f"  {best_stoi_params}")
-    print(f"  STOI: {best_stoi_score:.4f} (improvement: {best_stoi_score - baseline_stoi:+.4f})")
-
-    print(f"\nOptimal Parameters for PESQ:")
-    print(f"  {best_pesq_params}")
-    print(f"  PESQ: {best_pesq_score:.2f} (improvement: {best_pesq_score - baseline_pesq:+.2f})")
-
-    print("=" * 60)
-
-    return {
-        'stoi': {'enhanced': best_stoi_enhanced, 'params': best_stoi_params, 'score': best_stoi_score},
-        'pesq': {'enhanced': best_pesq_enhanced, 'params': best_pesq_params, 'score': best_pesq_score}
-    }
-
-
-def _grid_search_with_early_stop(clean_reference, noisy_audio, sr, algorithm_function,
-                                 param_ranges, baseline_score=0, threshold=0.7, metric='stoi'):
-    """
-    Grid search with early stopping based on threshold
-    """
-    best_score = -1
-    best_params = {}
-    best_enhanced = None
-
-    # Create coarse parameter ranges
-    coarse_ranges = {}
-    for param, values in param_ranges.items():
-        if len(values) > 4:
-            # Take min, 25%, 50%, 75%, max
-            indices = [0, len(values) // 4, len(values) // 2, 3 * len(values) // 4, -1]
-            coarse_ranges[param] = [values[i] for i in indices if i < len(values)]
-        elif len(values) > 2:
-            # Take min, middle, max
-            coarse_ranges[param] = [values[0], values[len(values) // 2], values[-1]]
-        else:
-            coarse_ranges[param] = values
-
-    param_names = list(coarse_ranges.keys())
-    param_combinations = list(product(*coarse_ranges.values()))
-    total = len(param_combinations)
-
-    print(f"  Testing {total} coarse combinations")
-
-    evaluated = 0
-    skipped = 0
+    print(f"Testing all {total_combinations} parameter combinations")
+    print("-" * 50)
 
     for i, params in enumerate(param_combinations):
         param_dict = dict(zip(param_names, params))
 
-        # Early skip for obviously bad parameters
-        if _should_skip_parameters(param_dict, algorithm_function):
-            skipped += 1
+        if (i % max(1, total_combinations // 20) == 0) or (i < 5):  # Erste 5 und dann alle 5% anzeigen
+            sorted_items = sorted(param_dict.items())  # Sortieren für konsistente Ausgabe
+            param_str = ", ".join([f"{k}={v}" for k, v in sorted_items])
+            print(f"  Testing [{i + 1}/{total_combinations}]: {param_str}")
+
+        try:
+            # Apply algorithm
+            enhanced = algorithm_function(noisy_audio, sr, **param_dict)
+
+            if enhanced is None or len(enhanced) == 0:
+                continue
+
+            # Calculate stoi and pesq
+            stoi_score = calculate_stoi(clean_reference, enhanced, sr)
+            pesq_score = calculate_pesq(clean_reference, enhanced, sr)
+
+            if stoi_score is None or pesq_score is None:
+                continue
+
+            # Update and store best result - mit EPSILON für korrekten Vergleich
+            epsilon_stoi = 1e-6
+            epsilon_pesq = 1e-3
+
+            stoi_improved = stoi_score > best_stoi + epsilon_stoi
+            pesq_improved = pesq_score > best_pesq + epsilon_pesq
+
+            if stoi_improved:
+                best_stoi = stoi_score
+                best_params_stoi = param_dict.copy()
+                best_enhanced_stoi = enhanced.copy()
+                # Debug message für neue beste STOI
+                sorted_best = sorted(param_dict.items())
+                param_str = ", ".join([f"{k}={v}" for k, v in sorted_best])
+                print(f"    New best STOI: {stoi_score:.4f}")
+                print(f"    Parameters: {param_str}")
+
+            if pesq_improved:
+                best_pesq = pesq_score
+                best_params_pesq = param_dict.copy()
+                best_enhanced_pesq = enhanced.copy()
+                # Debug message für neue beste PESQ
+                sorted_best = sorted(param_dict.items())
+                param_str = ", ".join([f"{k}={v}" for k, v in sorted_best])
+                print(f"    New best PESQ: {pesq_score:.2f}")
+                print(f"    Parameters: {param_str}")
+
+        except Exception as e:
+            print(f"  Warning with params {param_dict}: {e}")
             continue
-
-        enhanced = algorithm_function(noisy_audio, sr, **param_dict)
-
-        if metric == 'stoi':
-            score = calculate_stoi(clean_reference, enhanced, sr) or 0
-        else:
-            score = calculate_pesq(clean_reference, enhanced, sr) or 0
-
-        evaluated += 1
-
-        # Early stopping: if score is too low compared to baseline
-        if score < baseline_score * threshold and metric == 'stoi':
-            continue
-
-        if score > best_score:
-            best_score = score
-            best_params = param_dict
-            best_enhanced = enhanced
 
         # Progress indicator
-        if (i + 1) % max(1, total // 10) == 0:
-            print(f"    Progress: {i + 1}/{total}, best {metric.upper()}: {best_score:.4f}")
+        if (i + 1) % max(1, total_combinations // 10) == 0:
+            print(f"  Progress: {i + 1}/{total_combinations} | Best STOI: {best_stoi:.4f} | Best PESQ: {best_pesq:.2f}")
 
-    print(f"  Evaluated: {evaluated}, Skipped: {skipped}, Best: {best_score:.4f}")
-    return best_params, best_score, best_enhanced
+    print(f"\n{'=' * 60}")
+    print("OPTIMIZATION RESULTS")
+    print(f"{'=' * 60}")
 
-
-def _random_search(clean_reference, noisy_audio, sr, algorithm_function,
-                   center_params, full_ranges, center_score=0,
-                   iterations=30, metric='stoi'):
-    """
-    Random search around center parameters
-    """
-    best_params = center_params.copy()
-    best_enhanced = algorithm_function(noisy_audio, sr, **best_params)
-
-    if metric == 'stoi':
-        best_score = calculate_stoi(clean_reference, best_enhanced, sr) or 0
-    else:
-        best_score = calculate_pesq(clean_reference, best_enhanced, sr) or 0
-
-    print(f"  Starting from {metric.upper()}: {best_score:.4f}")
-
-    improvement_count = 0
-
-    for i in range(iterations):
-        # Generate trial parameters
-        trial_params = {}
-        for param, values in full_ranges.items():
-            if param in center_params and len(values) > 1:
-                current_val = center_params[param]
-
-                # Try to find current value in range
-                if current_val in values:
-                    idx = values.index(current_val)
+    print(f"\n🎯 Optimal Parameters for MAXIMIZING STOI (Verständlichkeit):")
+    print(f"   {'-' * 50}")
+    # Sortierte Ausgabe der Parameter
+    if best_params_stoi:
+        sorted_params = sorted(best_params_stoi.items())
+        for param_name, param_value in sorted_params:
+            # Finde Position in der Range für Kontext
+            if param_name in param_ranges:
+                values = param_ranges[param_name]
+                if len(values) > 1:
+                    idx = values.index(param_value)
+                    print(f"   {param_name:20} = {param_value} (Position {idx + 1}/{len(values)} in range {values})")
                 else:
-                    # Find closest value
-                    idx = min(range(len(values)), key=lambda i: abs(values[i] - current_val))
-
-                # Move randomly within +/- 2 positions, but stay in bounds
-                max_step = max(1, len(values) // 4)  # Don't move too far
-                step = random.randint(-max_step, max_step)
-                new_idx = max(0, min(len(values) - 1, idx + step))
-                trial_params[param] = values[new_idx]
+                    print(f"   {param_name:20} = {param_value}")
             else:
-                # Random choice for parameters not in center
-                trial_params[param] = random.choice(values)
+                print(f"   {param_name:20} = {param_value}")
+    else:
+        print("   No valid parameters found for STOI optimization")
 
-        # Skip if parameters are identical to current best
-        if trial_params == best_params:
-            continue
+    print(f"\n   STOI Score: {best_stoi:.4f}")
+    print(
+        f"   Improvement over baseline: {best_stoi - baseline_stoi:+.4f} ({100 * (best_stoi - baseline_stoi) / baseline_stoi:+.1f}%)")
 
-        enhanced = algorithm_function(noisy_audio, sr, **trial_params)
+    print(f"\nOptimal Parameters for MAXIMIZING PESQ (Audio-Qualität):")
+    print(f"   {'-' * 50}")
+    if best_params_pesq:
+        sorted_params = sorted(best_params_pesq.items())
+        for param_name, param_value in sorted_params:
+            if param_name in param_ranges:
+                values = param_ranges[param_name]
+                if len(values) > 1:
+                    idx = values.index(param_value)
+                    print(f"   {param_name:20} = {param_value} (Position {idx + 1}/{len(values)} in range {values})")
+                else:
+                    print(f"   {param_name:20} = {param_value}")
+            else:
+                print(f"   {param_name:20} = {param_value}")
+    else:
+        print("   No valid parameters found for PESQ optimization")
 
-        if metric == 'stoi':
-            score = calculate_stoi(clean_reference, enhanced, sr) or 0
+    print(f"\n   PESQ Score: {best_pesq:.2f}")
+    print(
+        f"   Improvement over baseline: {best_pesq - baseline_pesq:+.2f} ({100 * (best_pesq - baseline_pesq) / baseline_pesq:+.1f}%)")
+
+    print(f"\n{'=' * 60}")
+    print("PARAMETER COMPARISON")
+    print(f"{'=' * 60}")
+
+    if best_params_stoi and best_params_pesq:
+        if best_params_stoi == best_params_pesq:
+            print("\n STOI and PESQ optimal parameters are IDENTICAL")
+            print("   → Same parameters maximize both intelligibility and quality")
         else:
-            score = calculate_pesq(clean_reference, enhanced, sr) or 0
+            print("\n STOI and PESQ optimal parameters are DIFFERENT")
+            print("   → Trade-off between intelligibility and quality")
 
-        # Accept if better
-        if score > best_score:
-            best_score = score
-            best_params = trial_params
-            best_enhanced = enhanced
-            improvement_count += 1
+            # Zeige Unterschiede detailliert
+            print(f"\n   {'Parameter':20} {'STOI-optimal':15} {'PESQ-optimal':15} {'Difference'}")
+            print(f"   {'-' * 20} {'-' * 15} {'-' * 15} {'-' * 10}")
 
-            # If we found significant improvement, we can be more aggressive
-            if improvement_count >= 3:
-                # Reset counter and continue
-                improvement_count = 0
+            all_params = set(best_params_stoi.keys()) | set(best_params_pesq.keys())
+            for param in sorted(all_params):
+                stoi_val = best_params_stoi.get(param, "N/A")
+                pesq_val = best_params_pesq.get(param, "N/A")
+                if stoi_val != pesq_val:
+                    diff_indicator = "↕️" if isinstance(stoi_val, (int, float)) and isinstance(pesq_val,
+                                                                                               (int, float)) else "≠"
+                    print(f"   {param:20} {str(stoi_val):15} {str(pesq_val):15} {diff_indicator}")
+                else:
+                    print(f"   {param:20} {str(stoi_val):15} {str(pesq_val):15} ✓")
 
-    print(f"  Finished with {metric.upper()}: {best_score:.4f}")
-    return best_params, best_score, best_enhanced
+    print(f"\n{'=' * 60}")
+    print("SUMMARY")
+    print(f"{'=' * 60}")
+    print(f"Total parameter combinations tested: {total_combinations}")
+    print(
+        f"Best STOI improvement: {best_stoi - baseline_stoi:+.4f} ({100 * (best_stoi - baseline_stoi) / baseline_stoi:+.1f}%)")
+    print(
+        f"Best PESQ improvement: {best_pesq - baseline_pesq:+.2f} ({100 * (best_pesq - baseline_pesq) / baseline_pesq:+.1f}%)")
 
+    if best_params_stoi != best_params_pesq:
+        num_different = sum(1 for k in set(best_params_stoi.keys()) | set(best_params_pesq.keys())
+                            if best_params_stoi.get(k) != best_params_pesq.get(k))
+        print(f"Parameters differing between STOI/PESQ optima: {num_different}/{len(param_names)}")
 
-def _should_skip_parameters(param_dict, algorithm_function):
-    """
-    Heuristic to skip obviously bad parameter combinations
-    """
-    func_name = algorithm_function.__name__.lower()
+    if best_enhanced_stoi is None or best_enhanced_pesq is None:
+        raise ValueError("Optimization failed - no valid parameters found!")
 
-    # Skip overly aggressive spectral subtraction
-    if 'spectral' in func_name:
-        alpha = param_dict.get('alpha', 1.0)
-        beta = param_dict.get('beta', 0.01)
+    print("=" * 60)
 
-        # Very high alpha with very low beta causes too much distortion
-        if alpha > 4.0 and beta < 0.005:
-            return True
-
-        # Very low alpha won't remove enough noise
-        if alpha < 0.5:
-            return True
-
-    # Skip extreme values for MMSE algorithms
-    if 'mmse' in func_name or 'wiener' in func_name:
-        alpha = param_dict.get('alpha', 0.98)
-
-        # Alpha too low leads to slow adaptation
-        if alpha < 0.8:
-            return True
-
-        # Alpha too high leads to musical noise
-        if alpha > 0.995:
-            return True
-
-        # Very high gain floor won't reduce noise enough
-        gain_floor = param_dict.get('gain_floor', 0.001)
-        if gain_floor > 0.1:
-            return True
-
-    return False
-
-
-def optimize_parameters_fast(clean_reference, noisy_audio, sr, algorithm_function, param_ranges):
-    """
-    Fast version for batch processing - uses smart optimization with reduced iterations
-    """
-    # Use smart optimization but with fewer iterations
-    return optimize_parameters_smart(
-        clean_reference, noisy_audio, sr, algorithm_function, param_ranges,
-        max_iterations=30,  # Reduced from 50
-        early_stop_threshold=0.6  # Slightly lower threshold
-    )
-
+    return {
+        'stoi': {'enhanced': best_enhanced_stoi, 'params': best_params_stoi, 'score': best_stoi},
+        'pesq': {'enhanced': best_enhanced_pesq, 'params': best_params_pesq, 'score': best_pesq},
+        'baseline': {'stoi': baseline_stoi, 'pesq': baseline_pesq},
+        'improvements': {
+            'stoi': best_stoi - baseline_stoi,
+            'pesq': best_pesq - baseline_pesq,
+            'stoi_percent': 100 * (best_stoi - baseline_stoi) / baseline_stoi if baseline_stoi > 0 else 0,
+            'pesq_percent': 100 * (best_pesq - baseline_pesq) / baseline_pesq if baseline_pesq > 0 else 0
+        }
+    }
 
 def _find_pairs(data_dir: str):
     wavs = [f for f in os.listdir(data_dir) if f.lower().endswith(".wav")]
@@ -331,21 +235,17 @@ def _find_pairs(data_dir: str):
 
     return pairs
 
-
 def _ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
-
 
 def _resample_if_needed(x, sr_x, sr_target):
     if sr_x == sr_target:
         return x
     return librosa.resample(x, orig_sr=sr_x, target_sr=sr_target)
 
-
 def _mean(vals):
     vals = [v for v in vals if v is not None]
     return float(np.mean(vals)) if vals else None
-
 
 def _fmt(x, digits=4):
     if x is None:
@@ -353,20 +253,15 @@ def _fmt(x, digits=4):
     return f"{x:.{digits}f}"
 
 
-def run_algorithm_on_pair(alg_name, alg_fn, param_ranges, clean, noisy, sr, out_dir, stem, use_fast=True):
-    """
-    Run algorithm with smart optimization
-    """
-    if use_fast:
-        print(f"    Using FAST optimization...")
-        opt = optimize_parameters_fast(clean, noisy, sr, alg_fn, param_ranges)
-    else:
-        print(f"    Using SMART optimization...")
-        opt = optimize_parameters_smart(clean, noisy, sr, alg_fn, param_ranges)
+def run_algorithm_on_pair(alg_name, alg_fn, param_ranges, clean, noisy, sr, out_dir, stem):
+    print(f"    Running optimization for {alg_name}...")
+
+    opt = optimize_parameters(clean, noisy, sr, alg_fn, param_ranges)
 
     enhanced_stoi = opt["stoi"]["enhanced"]
     enhanced_pesq = opt["pesq"]["enhanced"]
 
+    # Calculate metrics
     stoi_noisy = calculate_stoi(clean, noisy, sr)
     pesq_noisy = calculate_pesq(clean, noisy, sr)
 
@@ -376,6 +271,7 @@ def run_algorithm_on_pair(alg_name, alg_fn, param_ranges, clean, noisy, sr, out_
     stoi_pesqopt = calculate_stoi(clean, enhanced_pesq, sr)
     pesq_pesqopt = calculate_pesq(clean, enhanced_pesq, sr)
 
+    # Save files
     _ensure_dir(out_dir)
     path_stoi = os.path.join(out_dir, f"{stem}_{alg_name}_optimized_stoi.wav")
     path_pesq = os.path.join(out_dir, f"{stem}_{alg_name}_optimized_pesq.wav")
@@ -403,6 +299,7 @@ def run_algorithm_on_pair(alg_name, alg_fn, param_ranges, clean, noisy, sr, out_
         "clean_path": None,
         "noisy_path": None,
     }
+
 
 def _compute_and_save_summary(all_results, algorithms, summary_dir):
     """
@@ -443,39 +340,23 @@ def _compute_and_save_summary(all_results, algorithms, summary_dir):
         print(f"  PESQ STOI-opt mean   : {_fmt(s['pesq_stoiopt_mean'], 2)}")
         print(f"  PESQ PESQ-opt mean   : {_fmt(s['pesq_pesqopt_mean'], 2)}")
 
+
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='Batch comparison of speech enhancement algorithms',
+        description='PRECISE batch comparison of speech enhancement algorithms',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
-    # Performance-Optimization
-    parser.add_argument('--fast', action='store_true',
-                        help='Use fast optimization mode (15x faster, slightly less accurate)')
-
-    # Sampling/Testing
     parser.add_argument('--sample', type=int, default=0,
-                        help='Number of files to sample (0 for all, e.g., --sample 50 for testing)')
-
-    # Parameter-Optimization
-    parser.add_argument('--optimize-on-sample', type=int, default=5,
-                      help='Find optimal parameters on N files, then apply to all (e.g., --optimize-on-sample 10)')
-
-    # Resume
+                        help='Number of files to sample (0 for all)')
     parser.add_argument('--resume', action='store_true',
-                        help='Skip already processed files (detects existing .wav results)')
-
+                        help='Skip already processed files')
     parser.add_argument('--start-from', type=str, default='',
-                        help='Start from specific file (e.g., --start-from p232_027)')
-
+                        help='Start from specific file')
     parser.add_argument('--list-processed', action='store_true',
                         help='List already processed files and exit')
-
-    # Debug/Info
-    parser.add_argument('--verbose', '-v', action='store_true',
-                        help='Show detailed progress information')
 
     args = parser.parse_args()
 
@@ -488,61 +369,34 @@ def main():
     out_omlsa = os.path.join(base_dir, "results_omlsa")
     summary_dir = os.path.join(base_dir, "results_summary")
 
+    from spectral_subtractor import spectral_subtraction
+    from mmse import mmse
+    from wiener_filter import wiener_filter
+    from advanced_mmse import advanced_mmse
+
     _ensure_dir(out_ss)
     _ensure_dir(out_mmse)
     _ensure_dir(out_wiener)
     _ensure_dir(out_omlsa)
     _ensure_dir(summary_dir)
 
-    ranges_ss = {
-        "alpha": [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0],
-        "beta": [0.001, 0.005, 0.01, 0.02, 0.05],
-        "n_fft": [512, 1024],
-        "hop_length": [128, 256],
-    }
-
-    ranges_mmse = {
-        "alpha": [0.85, 0.92, 0.96, 0.98],
-        "n_fft": [512, 1024],
-        "hop_length": [128, 256],
-        "ksi_min": [0.001, 0.01, 0.05],
-    }
-
-    ranges_wiener = {
-        "alpha": [0.85, 0.92, 0.96, 0.98],
-        "n_fft": [512, 1024],
-        "hop_length": [128, 256],
-        "gain_floor": [0.0005, 0.001, 0.005, 0.01],
-    }
-
-    ranges_omlsa = {
-        "alpha": [0.92, 0.96, 0.98],
-        "n_fft": [512, 1024],
-        "hop_length": [128, 256],
-        "ksi_min": [0.001, 0.01, 0.05],
-        "gain_floor": [0.02, 0.05, 0.1],
-        "noise_mu": [0.95, 0.98],
-        "q": [0.3, 0.5, 0.7],
-    }
-
     algorithms = [
-        ("spectralSubtractor", spectral_subtraction, ranges_ss, out_ss),
-        ("mmse", mmse, ranges_mmse, out_mmse),
-        ("wiener", wiener_filter, ranges_wiener, out_wiener),
-        ("omlsa", advanced_mmse, ranges_omlsa, out_omlsa),
+        ("spectralSubtractor", spectral_subtraction, param_ranges_ss, out_ss),
+        ("mmse", mmse, param_ranges_mmse, out_mmse),
+        ("wiener", wiener_filter, param_ranges_wiener, out_wiener),
+        ("omlsa", advanced_mmse, param_ranges_omlsa, out_omlsa),
     ]
 
     pairs = _find_pairs(data_dir)
     if not pairs:
         raise RuntimeError(
             "No file pairs found in ./data.\n"
-            "Expected e.g. <stem>_clean.wav and <stem>_noiseWithMusic.wav (or _noisy.wav)."
         )
 
     # Sample files if requested
     if args.sample > 0 and args.sample < len(pairs):
         import random
-        random.seed(42)  # For reproducibility
+        random.seed(42)
         pairs = random.sample(pairs, args.sample)
         print(f"Sampling {args.sample} files from dataset")
 
@@ -563,7 +417,7 @@ def main():
                             processed.add(stem)
         return processed
 
-    # List of processed data
+    # List processed files
     if args.list_processed:
         processed = get_processed_stems()
         print(f"Already processed data ({len(processed)}):")
@@ -581,7 +435,6 @@ def main():
 
         if processed_stems:
             print(f"Found: {len(processed_stems)} already processed data")
-            print(f"Examples: {sorted(list(processed_stems))[:5]}")
         else:
             print("No processed data found.")
 
@@ -590,11 +443,9 @@ def main():
         # Filter already processed
         if args.resume and processed_stems:
             pairs = [p for p in pairs if p["stem"] not in processed_stems]
-            print(
-                f"Skipping {original_count - len(pairs)} already processed files (based on audio files)")
+            print(f"Skipping {original_count - len(pairs)} already processed files")
 
         if args.start_from:
-            # index start data
             start_index = 0
             for i, p in enumerate(pairs):
                 if p["stem"] == args.start_from:
@@ -612,14 +463,12 @@ def main():
 
         if len(pairs) == 0:
             print("No new files to process.")
-
             json_path = os.path.join(summary_dir, "all_results.json")
             if os.path.exists(json_path):
                 try:
                     with open(json_path, 'r', encoding='utf-8') as f:
                         all_results = json.load(f)
                     print(f"\nLoading existing results ({len(all_results)} entries) for summary...")
-                    # Calculate and show summary
                     _compute_and_save_summary(all_results, algorithms, summary_dir)
                 except Exception as e:
                     print(f"Error loading existing results: {e}")
@@ -635,10 +484,10 @@ def main():
     all_results = []
 
     print("=" * 70)
-    print("BATCH COMPARISON OF SPEECH ENHANCEMENT ALGORITHMS")
+    print("PRECISE BATCH COMPARISON OF SPEECH ENHANCEMENT ALGORITHMS")
     print(f"Data folder : {data_dir}")
     print(f"Found pairs : {len(pairs)}")
-    print(f"Optimization mode: {'FAST' if args.fast else 'SMART'}")
+    print("IMPORTANT: Using PRECISE optimization for each file (no shortcuts)")
     if args.sample > 0:
         print(f"Sampling: {args.sample} files")
     print("=" * 70)
@@ -652,7 +501,6 @@ def main():
             print(f"\nExisting JSON file found: {len(existing_results)} entries")
 
             if args.resume:
-                # Keep existing results
                 all_results = existing_results
                 print(f"Keeping {len(all_results)} existing results (--resume active)")
 
@@ -674,63 +522,9 @@ def main():
         print("\nNo existing JSON file found. Starting with empty results.")
         all_results = []
 
-    # Phase 1: Find optimal parameters on a small sample
-    if args.optimize_on_sample > 0 and args.optimize_on_sample < len(pairs):
-        print(f"\n{'=' * 60}")
-        print(f"PHASE 1: Finding optimal parameters on {args.optimize_on_sample} sample files")
-        print(f"{'=' * 60}")
-
-        sample_pairs = pairs[:args.optimize_on_sample]
-        optimal_params = {}
-
-        for alg_name, alg_fn, ranges, _ in algorithms:
-            print(f"\nFinding optimal parameters for {alg_name}...")
-
-            # Aggregate results from sample files
-            all_scores_stoi = []
-            all_params_stoi = []
-            all_scores_pesq = []
-            all_params_pesq = []
-
-            for i, p in enumerate(sample_pairs, 1):
-                print(f"  Sample {i}/{len(sample_pairs)}: {p['stem']}")
-
-                clean, sr_c = librosa.load(p["clean"], sr=None)
-                noisy, sr_n = librosa.load(p["noisy"], sr=None)
-
-                clean = _resample_if_needed(clean, sr_c, target_sr)
-                noisy = _resample_if_needed(noisy, sr_n, target_sr)
-
-                L = min(len(clean), len(noisy))
-                clean = clean[:L]
-                noisy = noisy[:L]
-
-                # Use fast optimization for parameter finding
-                opt = optimize_parameters_fast(clean, noisy, target_sr, alg_fn, ranges)
-
-                all_scores_stoi.append(opt['stoi']['score'])
-                all_params_stoi.append(opt['stoi']['params'])
-
-                all_scores_pesq.append(opt['pesq']['score'])
-                all_params_pesq.append(opt['pesq']['params'])
-
-            # Find most common/best parameters
-            # Simple approach: take parameters from best performing sample
-            if all_scores_stoi:
-                best_idx_stoi = np.argmax(all_scores_stoi)
-                best_idx_pesq = np.argmax(all_scores_pesq)
-
-                optimal_params[alg_name] = {
-                    'stoi': all_params_stoi[best_idx_stoi],
-                    'pesq': all_params_pesq[best_idx_pesq]
-                }
-
-                print(f"  Selected STOI params: {optimal_params[alg_name]['stoi']}")
-                print(f"  Selected PESQ params: {optimal_params[alg_name]['pesq']}")
-
-    # Phase 2: Process all files
+    # Process all files
     print(f"\n{'=' * 60}")
-    print(f"PHASE 2: Processing all files")
+    print(f"Processing all files with PRECISE optimization")
     print(f"{'=' * 60}")
 
     new_results_count = 0
@@ -764,70 +558,26 @@ def main():
                     existing_entry_index = idx
                     break
 
-            # If we found optimal parameters in phase 1, use them directly
-            if 'optimal_params' in locals() and alg_name in optimal_params:
-                print(f"    Using pre-optimized parameters...")
-
-                # Apply STOI-optimized parameters
-                enhanced_stoi = alg_fn(noisy, target_sr, **optimal_params[alg_name]['stoi'])
-                stoi_score_stoi = calculate_stoi(clean, enhanced_stoi, target_sr)
-
-                # Apply PESQ-optimized parameters
-                enhanced_pesq = alg_fn(noisy, target_sr, **optimal_params[alg_name]['pesq'])
-                pesq_score_pesq = calculate_pesq(clean, enhanced_pesq, target_sr)
-
-                stoi_noisy = calculate_stoi(clean, noisy, target_sr)
-                pesq_noisy = calculate_pesq(clean, noisy, target_sr)
-                stoi_score_pesq = calculate_stoi(clean, enhanced_pesq, target_sr)
-                pesq_score_stoi = calculate_pesq(clean, enhanced_stoi, target_sr)
-
-                _ensure_dir(out_dir)
-                path_stoi = os.path.join(out_dir, f"{stem}_{alg_name}_optimized_stoi.wav")
-                path_pesq = os.path.join(out_dir, f"{stem}_{alg_name}_optimized_pesq.wav")
-                sf.write(path_stoi, enhanced_stoi, target_sr)
-                sf.write(path_pesq, enhanced_pesq, target_sr)
-
-                r = {
-                    "alg": alg_name,
-                    "stem": stem,
-                    "sr": target_sr,
-                    "stoi_noisy": stoi_noisy,
-                    "pesq_noisy": pesq_noisy,
-                    "stoi_stoiopt": stoi_score_stoi,
-                    "pesq_stoiopt": pesq_score_stoi,
-                    "stoi_pesqopt": stoi_score_pesq,
-                    "pesq_pesqopt": pesq_score_pesq,
-                    "best_params_stoi": optimal_params[alg_name]['stoi'],
-                    "best_params_pesq": optimal_params[alg_name]['pesq'],
-                    "enhanced_path_stoi": path_stoi,
-                    "enhanced_path_pesq": path_pesq,
-                    "clean_path": p["clean"],
-                    "noisy_path": p["noisy"],
-                }
-            else:
-                # Otherwise do full optimization
-                r = run_algorithm_on_pair(
-                    alg_name=alg_name,
-                    alg_fn=alg_fn,
-                    param_ranges=ranges,
-                    clean=clean,
-                    noisy=noisy,
-                    sr=target_sr,
-                    out_dir=out_dir,
-                    stem=stem,
-                    use_fast=args.fast
-                )
-                r["clean_path"] = p["clean"]
-                r["noisy_path"] = p["noisy"]
+            # Run PRECISE optimization
+            r = run_algorithm_on_pair(
+                alg_name=alg_name,
+                alg_fn=alg_fn,
+                param_ranges=ranges,
+                clean=clean,
+                noisy=noisy,
+                sr=target_sr,
+                out_dir=out_dir,
+                stem=stem
+            )
+            r["clean_path"] = p["clean"]
+            r["noisy_path"] = p["noisy"]
 
             # Add result or update existing one
             if existing_entry_index >= 0:
-                # Update existing entry
                 all_results[existing_entry_index] = r
                 updated_results_count += 1
                 print(f"    Updating existing entry for {stem}_{alg_name}")
             else:
-                # Add new entry
                 all_results.append(r)
                 new_results_count += 1
                 print(f"    Adding new entry for {stem}_{alg_name}")
@@ -850,7 +600,7 @@ def main():
     print(f"Updated entries: {updated_results_count}")
     print(f"Total entries in JSON: {len(all_results)}")
 
-    # Remove duplicates before saving (safety measure)
+    # Remove duplicates before saving
     unique_results = {}
     for result in all_results:
         key = f"{result['stem']}_{result['alg']}"
@@ -864,10 +614,10 @@ def main():
 
     # Save JSON
     json_path = os.path.join(summary_dir, "all_results.json")
-    print(f"\nSpeichere JSON nach {json_path}...")
+    print(f"\nSaving JSON to {json_path}...")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(all_results, f, indent=2, ensure_ascii=False)
-    print(f"JSON erfolgreich gespeichert ({len(all_results)} Einträge)")
+    print(f"JSON successfully saved ({len(all_results)} entries)")
 
     # Compute summary means
     summary = {}
@@ -887,7 +637,7 @@ def main():
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
-    # CSV (None-safe)
+    # CSV
     csv_path = os.path.join(summary_dir, "all_results.csv")
     with open(csv_path, "w", encoding="utf-8") as f:
         header = [

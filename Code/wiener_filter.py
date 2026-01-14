@@ -4,14 +4,18 @@ import soundfile as sf
 import numpy as np
 import librosa
 
-from evaluation_metrics import evaluate_audio_quality, optimize_parameters
+from evaluation_metrics import evaluate_audio_quality
+from speech_enhancement_comparison import optimize_parameters
 from load_files import load_clean_noisy, default_out_dir
 
+from parameter_ranges import param_ranges_wiener
+
+from noise_estimation import noise_estimation
+
 def wiener_filter(noisy_audio, sr,
-                  noise_start=0.0, noise_end=0.1,
-                  n_fft=1024, hop_length=256,
-                  alpha=0.98,
-                  gain_floor=0.001):
+                  n_fft, hop_length,
+                  alpha,
+                  gain_floor, noise_percentile, noise_method):
     """
     Classic Wiener filtering (single-channel) in STFT domain.
 
@@ -28,25 +32,23 @@ def wiener_filter(noisy_audio, sr,
     original_length = len(noisy_audio)
     eps = 1e-10
 
-    # 1) Noise estimation from initial segment
-    ns = int(max(0.0, noise_start) * sr)
-    ne = int(max(0.0, noise_end) * sr)
-    ne = min(ne, original_length)
-    if ne <= ns:
-        ns, ne = 0, min(int(0.1 * sr), original_length)
-
-    noise_segment = noisy_audio[ns:ne]
-    if len(noise_segment) < 2:
-        noise_segment = noisy_audio[:min(original_length, max(2, int(0.1 * sr)))]
-
-    # 2) STFT
+    # 1) STFT (noisy)
     stft_noisy = librosa.stft(noisy_audio, n_fft=n_fft, hop_length=hop_length, win_length=n_fft)
-    stft_noise = librosa.stft(noise_segment, n_fft=n_fft, hop_length=hop_length, win_length=n_fft)
+
+    # 2) Noise estimation
+    power_noise = noise_estimation(
+        noisy_audio,
+        sr=sr,
+        n_fft=n_fft,
+        hop_length=hop_length,
+        win_length=n_fft,
+        percentile=noise_percentile,
+        method=noise_method,
+        eps=1e-10
+    )
 
     # 3) Power spectra
     power_noisy = np.abs(stft_noisy) ** 2
-    power_noise = np.mean(np.abs(stft_noise) ** 2, axis=1, keepdims=True)
-    power_noise = np.maximum(power_noise, eps)
 
     num_freq_bins, num_frames = stft_noisy.shape
 
@@ -108,15 +110,10 @@ def test_wiener(clean_path=None, noisy_path=None, data_dir="data", out_dir=None,
 
     clean_reference, noisy, sr = load_clean_noisy(clean_path, noisy_path, target_sr=16000)
 
-    param_ranges = {
-        "alpha": [0.85, 0.9, 0.94, 0.96, 0.98],#0.92
-        "n_fft": [512, 1024],
-        "hop_length": [128, 256],
-        "gain_floor": [0.0005, 0.001, 0.005, 0.01],
-    }
-
     print("\nStarting Wiener parameter optimization...")
-    optimization_results = optimize_parameters(clean_reference, noisy, sr, wiener_filter, param_ranges)
+    optimization_results = optimize_parameters(
+        clean_reference, noisy, sr, wiener_filter, param_ranges_wiener
+    )
 
     stoi_results = evaluate_audio_quality(clean_reference, noisy, optimization_results['stoi']['enhanced'], sr,
                                          "Wiener (STOI optimized)")
