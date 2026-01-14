@@ -5,19 +5,22 @@ def noise_estimation(y, sr, n_fft=1024, hop_length=256, win_length=None,
                      percentile=20.0, min_frames=10, max_fraction=0.30,
                      floor_rel=0.02, smooth_bins=7, adaptive_short=True,
                      eps=1e-10, debug=False, **kwargs):
-    """
-    Universelle Rauschschätzung mit mehreren Methoden
 
-    Extra Parameter für erweiterte Methoden:
-    - method: 'percentile' (default), 'min_tracking', 'voice_activity'
-    - vad_threshold: Für voice_activity Methode
-    - window_size: Für min_tracking Methode
-    """
-
-    # Extrahiere optionale Methoden-Parameter
     method = kwargs.get('method', 'percentile')
     vad_threshold = kwargs.get('vad_threshold', percentile)
 
+    # Check for true_noise method
+    if method == 'true_noise':
+        if debug:
+            print("Using TRUE NOISE method (ground truth)")
+
+        clean_audio = kwargs.get('clean_audio', None)
+        if clean_audio is None:
+            raise ValueError("'true_noise' method requires 'clean_audio' parameter")
+
+        return calculate_true_noise_psd(
+            clean_audio, y, sr, n_fft=n_fft, hop_length=hop_length
+        )
 
     y = np.asarray(y, dtype=np.float64)
 
@@ -50,7 +53,7 @@ def noise_estimation(y, sr, n_fft=1024, hop_length=256, win_length=None,
     elif method == 'voice_activity' and n_frames > 5:
         return _noise_voice_activity(power, n_frames, vad_threshold, min_frames, eps)
 
-    else:  # Default: percentile method (kompatibel)
+    else:  # Default: percentile method
         return _noise_percentile(power, n_frames, percentile, min_frames,
                                  max_fraction, floor_rel, adaptive_short, eps)
 
@@ -82,28 +85,59 @@ def _noise_percentile(power, n_frames, percentile=20.0, min_frames=10,
 
     return noise_psd
 
-
 def _noise_min_tracking(power, n_frames, window_size=50, eps=1e-10):
-    """Minimum statistics method"""
-    window_size = min(window_size, n_frames // 2)
+    """
+    - Temporal IIR smoothing per frequency bin (reduces random dips)
+    - Sliding-window minimum (running minimum), vectorized
+    - Robust aggregation (median over time)
+    """
+    power = np.asarray(power, dtype=np.float64)
+    n_bins, T = power.shape
+    if T != n_frames:
+        n_frames = T
 
-    noise_psd = np.zeros((power.shape[0], 1))
-    for k in range(power.shape[0]):
-        min_values = []
+    # Handle very short signals robustly
+    if n_frames < 2:
+        noise_psd = np.mean(power, axis=1, keepdims=True)
+        return np.maximum(noise_psd, eps)
+
+    # Clamp window size to valid range and make it odd
+    window_size = int(window_size)
+    window_size = max(3, min(window_size, n_frames))
+    if window_size % 2 == 0:
+        window_size += 1
+    pad = window_size // 2
+
+    # 1) Temporal smoothing (IIR / exponential moving average)
+    # Fixed smoothing factor to keep your parameter search unchanged
+    smooth = 0.90  # Higher -> smoother (more robust), lower -> more adaptive
+    p_smooth = np.empty_like(power)
+    p_smooth[:, 0] = power[:, 0]
+    one_minus = 1.0 - smooth
+    for t in range(1, n_frames):
+        p_smooth[:, t] = smooth * p_smooth[:, t - 1] + one_minus * power[:, t]
+
+    # 2) Running minimum within a sliding window (vectorized)
+    padded = np.pad(p_smooth, ((0, 0), (pad, pad)), mode="edge")
+    try:
+        from numpy.lib.stride_tricks import sliding_window_view
+        windows = sliding_window_view(padded, window_shape=window_size, axis=1)  # (bins, frames, win)
+        pmin_t = np.min(windows, axis=2)  # (bins, frames)
+    except Exception:
+        # Fallback: compute per-frame minima (still avoids looping over bins)
+        pmin_t = np.empty((n_bins, n_frames), dtype=np.float64)
         for t in range(n_frames):
-            start = max(0, t - window_size // 2)
-            end = min(n_frames, t + window_size // 2)
-            min_val = np.min(power[k, start:end])
-            min_values.append(min_val)
+            pmin_t[:, t] = np.min(padded[:, t:t + window_size], axis=1)
 
-        noise_psd[k] = np.median(min_values)
+    # 3) Convert time-varying minima to a single stationary noise PSD (median over time)
+    noise_psd = np.median(pmin_t, axis=1, keepdims=True)
 
+    # 4) Safety floor to avoid severe underestimation (same spirit as your original code)
     signal_median = np.median(power, axis=1, keepdims=True)
     noise_psd = np.maximum(noise_psd, 0.01 * signal_median)
     noise_psd = np.maximum(noise_psd, eps)
 
     return noise_psd
-
 
 def _noise_voice_activity(power, n_frames, threshold_percentile=30,
                           min_frames=5, eps=1e-10):
@@ -127,3 +161,31 @@ def _noise_voice_activity(power, n_frames, threshold_percentile=30,
     noise_psd = np.maximum(noise_psd, eps)
 
     return noise_psd
+
+
+def calculate_true_noise_psd(clean_audio, noisy_audio, sr, n_fft=1024, hop_length=256):
+    """
+    Calculate noise PSD from clean and noisy audio
+    """
+    # Ensure same length
+    min_len = min(len(clean_audio), len(noisy_audio))
+    clean_audio = clean_audio[:min_len]
+    noisy_audio = noisy_audio[:min_len]
+
+    noise_time = noisy_audio - clean_audio
+
+    # STFT of clean and noisy
+    stft_clean = librosa.stft(clean_audio, n_fft=n_fft, hop_length=hop_length, win_length=n_fft)
+    stft_noisy = librosa.stft(noisy_audio, n_fft=n_fft, hop_length=hop_length, win_length=n_fft)
+
+    # True noise in STFT domain
+    stft_noise = stft_noisy - stft_clean
+
+    # Noise Power Spectral Density
+    noise_psd = np.abs(stft_noise) ** 2
+
+    # Average over frames for initial estimate
+    noise_psd_mean = np.mean(noise_psd, axis=1, keepdims=True)
+
+    return noise_psd_mean
+

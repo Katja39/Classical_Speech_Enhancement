@@ -38,8 +38,8 @@ def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, pa
     for i, params in enumerate(param_combinations):
         param_dict = dict(zip(param_names, params))
 
-        if (i % max(1, total_combinations // 20) == 0) or (i < 5):  # Erste 5 und dann alle 5% anzeigen
-            sorted_items = sorted(param_dict.items())  # Sortieren für konsistente Ausgabe
+        if (i % max(1, total_combinations // 20) == 0) or (i < 5):
+            sorted_items = sorted(param_dict.items())
             param_str = ", ".join([f"{k}={v}" for k, v in sorted_items])
             print(f"  Testing [{i + 1}/{total_combinations}]: {param_str}")
 
@@ -57,7 +57,6 @@ def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, pa
             if stoi_score is None or pesq_score is None:
                 continue
 
-            # Update and store best result - mit EPSILON für korrekten Vergleich
             epsilon_stoi = 1e-6
             epsilon_pesq = 1e-3
 
@@ -68,7 +67,7 @@ def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, pa
                 best_stoi = stoi_score
                 best_params_stoi = param_dict.copy()
                 best_enhanced_stoi = enhanced.copy()
-                # Debug message für neue beste STOI
+
                 sorted_best = sorted(param_dict.items())
                 param_str = ", ".join([f"{k}={v}" for k, v in sorted_best])
                 print(f"    New best STOI: {stoi_score:.4f}")
@@ -78,7 +77,7 @@ def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, pa
                 best_pesq = pesq_score
                 best_params_pesq = param_dict.copy()
                 best_enhanced_pesq = enhanced.copy()
-                # Debug message für neue beste PESQ
+
                 sorted_best = sorted(param_dict.items())
                 param_str = ", ".join([f"{k}={v}" for k, v in sorted_best])
                 print(f"    New best PESQ: {pesq_score:.2f}")
@@ -96,13 +95,13 @@ def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, pa
     print("OPTIMIZATION RESULTS")
     print(f"{'=' * 60}")
 
-    print(f"\n🎯 Optimal Parameters for MAXIMIZING STOI (Verständlichkeit):")
+    print(f"\nOptimal Parameters for MAXIMIZING STOI:")
     print(f"   {'-' * 50}")
-    # Sortierte Ausgabe der Parameter
+
     if best_params_stoi:
         sorted_params = sorted(best_params_stoi.items())
         for param_name, param_value in sorted_params:
-            # Finde Position in der Range für Kontext
+
             if param_name in param_ranges:
                 values = param_ranges[param_name]
                 if len(values) > 1:
@@ -152,7 +151,6 @@ def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, pa
             print("\n STOI and PESQ optimal parameters are DIFFERENT")
             print("   → Trade-off between intelligibility and quality")
 
-            # Zeige Unterschiede detailliert
             print(f"\n   {'Parameter':20} {'STOI-optimal':15} {'PESQ-optimal':15} {'Difference'}")
             print(f"   {'-' * 20} {'-' * 15} {'-' * 15} {'-' * 10}")
 
@@ -256,7 +254,18 @@ def _fmt(x, digits=4):
 def run_algorithm_on_pair(alg_name, alg_fn, param_ranges, clean, noisy, sr, out_dir, stem):
     print(f"    Running optimization for {alg_name}...")
 
-    opt = optimize_parameters(clean, noisy, sr, alg_fn, param_ranges)
+    def algorithm_wrapper(noisy_audio, sr, **params):
+        # Check if noise_method is 'true_noise'
+        if params.get('noise_method') == 'true_noise':
+            try:
+                return alg_fn(noisy_audio, sr, clean_audio=clean, **params)
+            except TypeError as e:
+                print(f"      Warning: Algorithm doesn't support true_noise, using estimation")
+                return alg_fn(noisy_audio, sr, **params)
+        else:
+            return alg_fn(noisy_audio, sr, **params)
+
+    opt = optimize_parameters(clean, noisy, sr, algorithm_wrapper, param_ranges)
 
     enhanced_stoi = opt["stoi"]["enhanced"]
     enhanced_pesq = opt["pesq"]["enhanced"]

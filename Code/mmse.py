@@ -12,7 +12,7 @@ from noise_estimation import noise_estimation
 
 from parameter_ranges import param_ranges_mmse
 
-def mmse(noisy_audio, sr, alpha, ksi_min, gain_min, gain_max, n_fft, hop_length, noise_percentile, noise_method):
+def mmse(noisy_audio, sr, alpha, ksi_min, gain_min, gain_max, n_fft, hop_length, noise_percentile, noise_method, clean_audio = None):
     """
     Classic Ephraim-Malah MMSE-STSA speech enhancement
 
@@ -38,6 +38,7 @@ def mmse(noisy_audio, sr, alpha, ksi_min, gain_min, gain_max, n_fft, hop_length,
         win_length=n_fft,
         percentile=noise_percentile,
         method=noise_method,
+        clean_audio = clean_audio,
         eps=eps
     )
 

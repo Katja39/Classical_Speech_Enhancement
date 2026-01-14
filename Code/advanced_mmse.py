@@ -11,7 +11,7 @@ from noise_estimation import noise_estimation
 from parameter_ranges import param_ranges_omlsa
 
 def advanced_mmse(noisy_audio, sr, n_fft, hop_length, alpha, ksi_min,
-                  q, noise_mu, gain_floor, noise_percentile, noise_method,
+                  q, noise_mu, gain_floor, noise_percentile, noise_method,clean_audio=None,
                   v_max=80.0):
     """
     Ausgangspunkt: MMSE (STSA)
@@ -41,6 +41,7 @@ def advanced_mmse(noisy_audio, sr, n_fft, hop_length, alpha, ksi_min,
         win_length=n_fft,
         percentile=noise_percentile,
         method=noise_method,
+        clean_audio=clean_audio,
         eps=eps
     )
 

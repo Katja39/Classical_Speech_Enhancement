@@ -13,7 +13,7 @@ from noise_estimation import noise_estimation
 
 from parameter_ranges import param_ranges_ss
 
-def spectral_subtraction(noisy_audio, sr, alpha, beta, n_fft, hop_length, noise_percentile, noise_method):
+def spectral_subtraction(noisy_audio, sr, alpha, beta, n_fft, hop_length, noise_percentile, noise_method, clean_audio=None):
 
     noisy_audio = np.asarray(noisy_audio, dtype=np.float64)
     original_length = len(noisy_audio)
@@ -31,6 +31,7 @@ def spectral_subtraction(noisy_audio, sr, alpha, beta, n_fft, hop_length, noise_
         win_length=n_fft,
         percentile=noise_percentile,
         method=noise_method,
+        clean_audio=clean_audio,
         eps=1e-10
     )
 

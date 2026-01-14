@@ -15,7 +15,7 @@ from noise_estimation import noise_estimation
 def wiener_filter(noisy_audio, sr,
                   n_fft, hop_length,
                   alpha,
-                  gain_floor, noise_percentile, noise_method):
+                  gain_floor, noise_percentile, noise_method, clean_audio = None):
     """
     Classic Wiener filtering (single-channel) in STFT domain.
 
@@ -44,6 +44,7 @@ def wiener_filter(noisy_audio, sr,
         win_length=n_fft,
         percentile=noise_percentile,
         method=noise_method,
+        clean_audio=clean_audio,
         eps=1e-10
     )
 
