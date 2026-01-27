@@ -1,5 +1,4 @@
 import os
-import numpy as np
 import librosa
 
 def load_clean_noisy(clean_path, noisy_path, target_sr=16000):
