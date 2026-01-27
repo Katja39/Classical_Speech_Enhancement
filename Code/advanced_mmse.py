@@ -2,16 +2,10 @@ import numpy as np
 import librosa
 from scipy.special import expn  # exponential integral E1(x) = expn(1, x)
 
-from evaluation_metrics import evaluate_audio_quality
-from speech_enhancement_comparison import optimize_parameters
-from load_files import load_clean_noisy, default_out_dir
-
 from noise_estimation import noise_estimation
 
-from parameter_ranges import param_ranges_omlsa
-
 def advanced_mmse(noisy_audio, sr, n_fft, hop_length, alpha, ksi_min,
-                  q, noise_mu, gain_floor, noise_percentile, noise_method,clean_audio=None,
+                  q, noise_mu, gain_floor, noise_percentile, noise_method, clean_audio=None,
                   v_max=80.0):
     """
     Ausgangspunkt: MMSE (STSA)
@@ -22,7 +16,7 @@ def advanced_mmse(noisy_audio, sr, n_fft, hop_length, alpha, ksi_min,
     - Decision-Directed a-priori SNR
     - LSA gain uses exp(0.5 * E1(v))
     - Speech Presence Probability (SPP) controls gain and noise update
-    - Adaptive noise PSD update using SPP (simple and effective)
+    - Adaptive noise PSD update using SPP
     """
 
     """ If speech is present → aggressive noise suppression; no speech → more conservative """
@@ -31,107 +25,65 @@ def advanced_mmse(noisy_audio, sr, n_fft, hop_length, alpha, ksi_min,
     original_length = len(noisy_audio)
     eps = 1e-10
 
-    # STFT
+    # 1. Zeit-Frequenz-Analyse
     Y = librosa.stft(noisy_audio, n_fft=n_fft, hop_length=hop_length, win_length=n_fft)
     Y_power = np.abs(Y) ** 2
+    num_bins, num_frames = Y.shape
 
-    # Initial noise PSD
-    noise_psd = noise_estimation(
+    # 2. Rauschschätzung (Vektor oder Matrix bei TrueNoise)
+    noise_psd_all = noise_estimation(
         noisy_audio, sr=sr, n_fft=n_fft, hop_length=hop_length,
-        win_length=n_fft,
-        percentile=noise_percentile,
-        method=noise_method,
-        clean_audio=clean_audio,
-        eps=eps
+        win_length=n_fft, percentile=noise_percentile,
+        method=noise_method, clean_audio=clean_audio, eps=eps
     )
 
-    noise_psd = np.maximum(noise_psd, eps)
-
-    num_bins, num_frames = Y.shape
+    is_adaptive = (noise_psd_all.shape[1] > 1)
     G = np.zeros((num_bins, num_frames), dtype=np.float64)
-
-    # Prior speech presence probability
     q_val = float(np.clip(q, 1e-3, 1 - 1e-3))
 
-    Yp_0 = Y_power[:, 0:1]
-    gamma_0 = Yp_0 / noise_psd
-    gamma_0 = np.maximum(gamma_0, eps)
-    ksi_0 = np.maximum(gamma_0 - 1.0, ksi_min)
+    # Initialisierung
+    active_noise_psd = noise_psd_all[:, 0:1] if is_adaptive else noise_psd_all
+    prev_gain = np.ones((num_bins, 1)) * gain_floor
+    prev_Y_power = Y_power[:, 0:1]
 
-    v_0 = (ksi_0 * gamma_0) / (1.0 + ksi_0)
-    v_0 = np.clip(v_0, 1e-12, v_max)
-
-    # Log-MMSE gain
-    E1_0 = expn(1, v_0)
-    G_lsa_0 = (ksi_0 / (1.0 + ksi_0)) * np.exp(0.5 * E1_0)
-    G_lsa_0 = np.nan_to_num(G_lsa_0, nan=gain_floor, posinf=1.0, neginf=gain_floor)
-
-    # Speech presence probability
-    Lambda_0 = (1.0 / (1.0 + ksi_0)) * np.exp(v_0)
-    p_speech_0 = 1.0 / (1.0 + ((1.0 - q_val) / q_val) * Lambda_0)
-    p_speech_0 = np.clip(p_speech_0, 1e-3, 1.0)
-    p_noise_0 = 1.0 - p_speech_0
-
-    # OM-LSA gain
-    G_0 = (G_lsa_0 ** p_speech_0) * (gain_floor ** (1.0 - p_speech_0))
-    G_0 = np.clip(G_0, gain_floor, 1.0)
-
-    G[:, 0:1] = G_0
-
-    # Noise update für t=0
-    estimated_noise_0 = p_noise_0 * Yp_0 + p_speech_0 * noise_psd
-    noise_psd = noise_mu * noise_psd + (1.0 - noise_mu) * estimated_noise_0
-    noise_psd = np.maximum(noise_psd, eps)
-
-    prev_gain = G_0
-    prev_Y_power = Yp_0
-
-    for t in range(1, num_frames):
+    # 3. Haupt-Loop über alle Frames
+    for t in range(num_frames):
         Yp = Y_power[:, t:t + 1]
-        gamma = Yp / noise_psd
-        gamma = np.maximum(gamma, eps)
+        curr_noise = noise_psd_all[:, t:t + 1] if is_adaptive else active_noise_psd
 
-        # Decision-directed a-priori SNR
-        recursive = (prev_gain ** 2) * prev_Y_power / noise_psd
-        direct = np.maximum(gamma - 1.0, 0.0)
-        ksi = alpha * recursive + (1.0 - alpha) * direct
+        # A-posteriori SNR
+        gamma = np.maximum(Yp / curr_noise, eps)
+
+        # Decision-Directed A-priori SNR (ksi)
+        recursive = (prev_gain ** 2) * prev_Y_power / curr_noise
+        ksi = alpha * recursive + (1.0 - alpha) * np.maximum(gamma - 1.0, 0.0)
         ksi = np.maximum(ksi, ksi_min)
 
-        v = (ksi * gamma) / (1.0 + ksi)
-        v = np.clip(v, 1e-12, v_max)
+        # Hilfsvariable v für das Exponential-Integral
+        v = np.clip((ksi * gamma) / (1.0 + ksi), 1e-12, v_max)
 
-        # Log-MMSE gain
-        E1 = expn(1, v)
-        G_lsa = (ksi / (1.0 + ksi)) * np.exp(0.5 * E1)
+        # Log-MMSE Gain (LSA)
+        G_lsa = (ksi / (1.0 + ksi)) * np.exp(0.5 * expn(1, v))
         G_lsa = np.nan_to_num(G_lsa, nan=gain_floor, posinf=1.0, neginf=gain_floor)
 
-        # Speech presence probability
+        # Sprachpräsenzwahrscheinlichkeit (SPP)
         Lambda = (1.0 / (1.0 + ksi)) * np.exp(v)
-        p_speech = 1.0 / (1.0 + ((1.0 - q_val) / q_val) * Lambda)
-        p_speech = np.clip(p_speech, 1e-3, 1.0)
-        p_noise = 1.0 - p_speech
+        p_speech = np.clip(1.0 / (1.0 + q_val / ((1.0 - q_val) * Lambda + eps)), 1e-3, 1.0)
 
-        # OM-LSA gain
-        G_t = (G_lsa ** p_speech) * (gain_floor ** (1.0 - p_speech))
-        G_t = np.clip(G_t, gain_floor, 1.0)
+        # Kombinierter Gain
+        G[:, t:t + 1] = np.clip((G_lsa ** p_speech) * (gain_floor ** (1.0 - p_speech)), gain_floor, 1.0)
 
-        G[:, t:t + 1] = G_t
+        # Rausch-Update (nur wenn kein Oracle/TrueNoise)
+        if not is_adaptive:
+            p_noise = 1.0 - p_speech
+            estimated_noise = p_noise * Yp + p_speech * active_noise_psd
+            active_noise_psd = noise_mu * active_noise_psd + (1.0 - noise_mu) * estimated_noise
+            active_noise_psd = np.maximum(active_noise_psd, eps)
 
-        # Adaptive noise PSD update (Cohen & Berdugo 2001)
-        estimated_noise = p_noise * Yp + p_speech * noise_psd
-        noise_psd = noise_mu * noise_psd + (1.0 - noise_mu) * estimated_noise
-        noise_psd = np.maximum(noise_psd, eps)
-
-        prev_gain = G_t
+        prev_gain = G[:, t:t + 1]
         prev_Y_power = Yp
 
-    # ISTFT
+    # 4. Rekonstruktion
     S_hat = Y * G
-    clean_audio = librosa.istft(S_hat, hop_length=hop_length, win_length=n_fft)
-
-    if len(clean_audio) > original_length:
-        clean_audio = clean_audio[:original_length]
-    elif len(clean_audio) < original_length:
-        clean_audio = np.pad(clean_audio, (0, original_length - len(clean_audio)))
-
-    return clean_audio
+    enhanced = librosa.istft(S_hat, hop_length=hop_length, win_length=n_fft)
+    return librosa.util.fix_length(enhanced, size=original_length)

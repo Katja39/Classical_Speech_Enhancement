@@ -8,8 +8,7 @@ from itertools import product
 
 from parameter_ranges import param_ranges_ss, param_ranges_mmse, param_ranges_wiener, param_ranges_omlsa
 
-from evaluation_metrics import calculate_pesq, calculate_stoi
-
+from evaluation_metrics import calculate_pesq, calculate_stoi, calculate_snr
 
 def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, param_ranges):
     print(f"\n{'=' * 60}")
@@ -66,7 +65,7 @@ def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, pa
             if stoi_improved:
                 best_stoi = stoi_score
                 best_params_stoi = param_dict.copy()
-                best_enhanced_stoi = enhanced.copy()
+                best_enhanced_stoi = enhanced
 
                 sorted_best = sorted(param_dict.items())
                 param_str = ", ".join([f"{k}={v}" for k, v in sorted_best])
@@ -184,10 +183,14 @@ def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, pa
 
     print("=" * 60)
 
+    baseline_snr = calculate_snr(clean_reference, noisy_audio)
+    snr_best_stoi = calculate_snr(clean_reference, best_enhanced_stoi)
+    snr_best_pesq = calculate_snr(clean_reference, best_enhanced_pesq)
+
     return {
-        'stoi': {'enhanced': best_enhanced_stoi, 'params': best_params_stoi, 'score': best_stoi},
-        'pesq': {'enhanced': best_enhanced_pesq, 'params': best_params_pesq, 'score': best_pesq},
-        'baseline': {'stoi': baseline_stoi, 'pesq': baseline_pesq},
+        'stoi': {'enhanced': best_enhanced_stoi, 'params': best_params_stoi, 'score': best_stoi, 'snr': snr_best_stoi},
+        'pesq': {'enhanced': best_enhanced_pesq, 'params': best_params_pesq, 'score': best_pesq, 'snr': snr_best_pesq},
+        'baseline': {'stoi': baseline_stoi, 'pesq': baseline_pesq, 'snr': baseline_snr},
         'improvements': {
             'stoi': best_stoi - baseline_stoi,
             'pesq': best_pesq - baseline_pesq,
@@ -267,18 +270,19 @@ def run_algorithm_on_pair(alg_name, alg_fn, param_ranges, clean, noisy, sr, out_
 
     opt = optimize_parameters(clean, noisy, sr, algorithm_wrapper, param_ranges)
 
+    snr_noisy = opt["baseline"]["snr"]
+
     enhanced_stoi = opt["stoi"]["enhanced"]
     enhanced_pesq = opt["pesq"]["enhanced"]
 
-    # Calculate metrics
-    stoi_noisy = calculate_stoi(clean, noisy, sr)
-    pesq_noisy = calculate_pesq(clean, noisy, sr)
+    stoi_noisy = opt["baseline"]["stoi"]
+    pesq_noisy = opt["baseline"]["pesq"]
 
-    stoi_stoiopt = calculate_stoi(clean, enhanced_stoi, sr)
+    stoi_stoiopt = opt["stoi"]["score"]
     pesq_stoiopt = calculate_pesq(clean, enhanced_stoi, sr)
 
     stoi_pesqopt = calculate_stoi(clean, enhanced_pesq, sr)
-    pesq_pesqopt = calculate_pesq(clean, enhanced_pesq, sr)
+    pesq_pesqopt = opt["pesq"]["score"]
 
     # Save files
     _ensure_dir(out_dir)
@@ -294,26 +298,22 @@ def run_algorithm_on_pair(alg_name, alg_fn, param_ranges, clean, noisy, sr, out_
 
         "stoi_noisy": stoi_noisy,
         "pesq_noisy": pesq_noisy,
+        "snr_noisy": opt["baseline"]["snr"],
+
         "stoi_stoiopt": stoi_stoiopt,
         "pesq_stoiopt": pesq_stoiopt,
+        "snr_stoiopt": opt["stoi"]["snr"],
+
         "stoi_pesqopt": stoi_pesqopt,
         "pesq_pesqopt": pesq_pesqopt,
+        "snr_pesqopt": opt["pesq"]["snr"],
 
         "best_params_stoi": opt["stoi"].get("params", {}),
         "best_params_pesq": opt["pesq"].get("params", {}),
-
-        "enhanced_path_stoi": path_stoi,
-        "enhanced_path_pesq": path_pesq,
-
-        "clean_path": None,
-        "noisy_path": None,
     }
 
 
 def _compute_and_save_summary(all_results, algorithms, summary_dir):
-    """
-    Compute and save summary from existing results
-    """
     print("\nComputing summary from existing results...")
 
     summary = {}
@@ -327,6 +327,8 @@ def _compute_and_save_summary(all_results, algorithms, summary_dir):
             "pesq_stoiopt_mean": _mean([r["pesq_stoiopt"] for r in rows]),
             "stoi_pesqopt_mean": _mean([r["stoi_pesqopt"] for r in rows]),
             "pesq_pesqopt_mean": _mean([r["pesq_pesqopt"] for r in rows]),
+            "snr_stoiopt_mean": _mean([r["snr_stoiopt"] for r in rows]),
+            "snr_pesqopt_mean": _mean([r["snr_pesqopt"] for r in rows])
         }
 
     summary_path = os.path.join(summary_dir, "summary_means.json")
@@ -403,7 +405,7 @@ def main():
         )
 
     # Sample files if requested
-    if args.sample > 0 and args.sample < len(pairs):
+    if 0 < args.sample < len(pairs):
         import random
         random.seed(42)
         pairs = random.sample(pairs, args.sample)
@@ -413,7 +415,7 @@ def main():
 
     # Find already processed files
     def get_processed_stems():
-        processed = set()
+        processed_file = set()
         result_dirs = [out_ss, out_mmse, out_wiener, out_omlsa]
 
         for result_dir in result_dirs:
@@ -422,9 +424,9 @@ def main():
                     if file.endswith('.wav') and ('_stoi.wav' in file or '_pesq.wav' in file):
                         parts = file.split('_')
                         if len(parts) >= 2:
-                            stem = '_'.join(parts[:2])
-                            processed.add(stem)
-        return processed
+                            processed_stem = '_'.join(parts[:2])
+                            processed_file.add(processed_stem)
+        return processed_file
 
     # List processed files
     if args.list_processed:
@@ -649,10 +651,12 @@ def main():
     # CSV
     csv_path = os.path.join(summary_dir, "all_results.csv")
     with open(csv_path, "w", encoding="utf-8") as f:
+        # Header ohne Pfad-Spalten
         header = [
-            "stem", "alg", "stoi_noisy", "pesq_noisy",
-            "stoi_stoiopt", "pesq_stoiopt", "stoi_pesqopt", "pesq_pesqopt",
-            "enhanced_path_stoi", "enhanced_path_pesq", "clean_path", "noisy_path"
+            "stem", "alg",
+            "stoi_noisy", "pesq_noisy", "snr_noisy",
+            "stoi_stoiopt", "pesq_stoiopt", "snr_stoiopt",
+            "stoi_pesqopt", "pesq_pesqopt", "snr_pesqopt",
         ]
         f.write(",".join(header) + "\n")
 
@@ -662,13 +666,12 @@ def main():
             return f"{x:.{digits}f}"
 
         for r in all_results:
+            # Row exakt passend zum Header (ohne Pfade am Ende)
             row = [
                 r["stem"], r["alg"],
-                cell(r["stoi_noisy"]), cell(r["pesq_noisy"]),
-                cell(r["stoi_stoiopt"]), cell(r["pesq_stoiopt"]),
-                cell(r["stoi_pesqopt"]), cell(r["pesq_pesqopt"]),
-                r["enhanced_path_stoi"], r["enhanced_path_pesq"],
-                r["clean_path"], r["noisy_path"],
+                cell(r["stoi_noisy"]), cell(r["pesq_noisy"]), cell(r.get("snr_noisy")),
+                cell(r["stoi_stoiopt"]), cell(r["pesq_stoiopt"]), cell(r.get("snr_stoiopt")),
+                cell(r["stoi_pesqopt"]), cell(r["pesq_pesqopt"]), cell(r.get("snr_pesqopt")),
             ]
             f.write(",".join(row) + "\n")
 

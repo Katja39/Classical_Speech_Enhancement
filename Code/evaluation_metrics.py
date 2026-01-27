@@ -1,5 +1,6 @@
 import librosa
 from pystoi import stoi
+import numpy as np
 import pesq
 
 # STOI – Speech intelligibility, 0–1, how well speech can be understood
@@ -29,6 +30,7 @@ def calculate_pesq(clean_reference, test_audio, sr):
         print(f"PESQ calculation failed: {e}")
         return None
 
+
 def calculate_stoi(clean_reference, test_audio, sr):
     try:
         min_length = min(len(clean_reference), len(test_audio))
@@ -37,27 +39,51 @@ def calculate_stoi(clean_reference, test_audio, sr):
         print(f"STOI calculation failed: {e}")
         return None
 
+
+def calculate_snr(clean, processed):
+    try:
+        clean = np.asarray(clean)
+        processed = np.asarray(processed)
+        min_length = min(len(clean), len(processed))
+        clean = clean[:min_length]
+        processed = processed[:min_length]
+
+        noise = clean - processed
+        p_signal = np.sum(clean ** 2)
+        p_noise = np.sum(noise ** 2)
+
+        if p_noise == 0:
+            return float('inf')
+
+        snr = 10 * np.log10(p_signal / (p_noise + 1e-10))
+        return float(snr)
+    except Exception as e:
+        print(f"SNR calculation failed: {e}")
+        return None
+
+
 def evaluate_audio_quality(clean_reference, noisy_audio, enhanced_audio, sr, algorithm_name=""):
     results = {}
 
-    # STOI Evaluation
-    stoi_noisy = calculate_stoi(clean_reference, noisy_audio, sr)
-    stoi_enhanced = calculate_stoi(clean_reference, enhanced_audio, sr)
+    s_noisy = calculate_stoi(clean_reference, noisy_audio, sr)
+    s_enhanced = calculate_stoi(clean_reference, enhanced_audio, sr)
 
-    if stoi_noisy is not None and stoi_enhanced is not None:
-        results['stoi_noisy'] = stoi_noisy
-        results['stoi_enhanced'] = stoi_enhanced
-        results['stoi_improvement'] = stoi_enhanced - stoi_noisy
-        results['stoi_improvement_percent'] = (results['stoi_improvement'] / stoi_noisy) * 100
+    if s_noisy is not None and s_enhanced is not None:
+        results['stoi_noisy'] = s_noisy
+        results['stoi_enhanced'] = s_enhanced
+        results['stoi_improvement'] = s_enhanced - s_noisy
 
-    # PESQ Evaluation
-    pesq_noisy = calculate_pesq(clean_reference, noisy_audio, sr)
-    pesq_enhanced = calculate_pesq(clean_reference, enhanced_audio, sr)
+    p_noisy = calculate_pesq(clean_reference, noisy_audio, sr)
+    p_enhanced = calculate_pesq(clean_reference, enhanced_audio, sr)
 
-    if pesq_noisy is not None and pesq_enhanced is not None:
-        results['pesq_noisy'] = pesq_noisy
-        results['pesq_enhanced'] = pesq_enhanced
-        results['pesq_improvement'] = pesq_enhanced - pesq_noisy
+    if p_noisy is not None and p_enhanced is not None:
+        results['pesq_noisy'] = p_noisy
+        results['pesq_enhanced'] = p_enhanced
+        results['pesq_improvement'] = p_enhanced - p_noisy
+
+    snr_val = calculate_snr(clean_reference, enhanced_audio)
+    if snr_val is not None:
+        results['snr_enhanced'] = snr_val
 
     # Print results
     if algorithm_name:
@@ -66,9 +92,14 @@ def evaluate_audio_quality(clean_reference, noisy_audio, enhanced_audio, sr, alg
         print(f"{'=' * 60}")
 
     if 'stoi_noisy' in results:
-        print(f"STOI: {results['stoi_noisy']:.4f} -> {results['stoi_enhanced']:.4f} (+{results['stoi_improvement']:.4f})")
+        print(
+            f"STOI: {results['stoi_noisy']:.4f} -> {results['stoi_enhanced']:.4f} (+{results['stoi_improvement']:.4f})")
 
     if 'pesq_noisy' in results:
-        print(f"PESQ: {results['pesq_noisy']:.2f} -> {results['pesq_enhanced']:.2f} (+{results['pesq_improvement']:.2f})")
+        print(
+            f"PESQ: {results['pesq_noisy']:.2f} -> {results['pesq_enhanced']:.2f} (+{results['pesq_improvement']:.2f})")
+
+    if 'snr_enhanced' in results:
+        print(f"SNR (Enhanced): {results['snr_enhanced']:.2f} dB")
 
     return results
