@@ -103,3 +103,17 @@ def evaluate_audio_quality(clean_reference, noisy_audio, enhanced_audio, sr, alg
         print(f"SNR (Enhanced): {results['snr_enhanced']:.2f} dB")
 
     return results
+
+
+def calculate_combined_speech_score(stoi, pesq):
+    """
+    Calculates a composite score from STOI and PESQ metrics.
+    PESQ is divided by 4.5 to scale it to a similar range as STOI (0-1).
+    Weighting: 50% STOI, 50% normalized PESQ.
+    """
+    if stoi is None: stoi = 0
+    if pesq is None: pesq = 0
+
+    pesq_norm = max(0, pesq) / 4.5
+
+    return 0.5 * stoi + 0.5 * pesq_norm
