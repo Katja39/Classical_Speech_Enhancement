@@ -53,3 +53,5 @@ TestAudio/*
 *.pyc
 *.wav
 *.xlsx
+/Code/OLD_results_summary
+/Code/results_summary

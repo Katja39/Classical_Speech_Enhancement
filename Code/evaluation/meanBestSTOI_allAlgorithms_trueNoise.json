@@ -1,0 +1,11 @@
+{
+  "omlsa": {
+    "stoi_stoiopt": 0.9342255967444499
+  },
+  "spectralSubtractor": {
+    "stoi_stoiopt": 0.9530096876369468
+  },
+  "wiener": {
+    "stoi_stoiopt": 0.9346199752625339
+  }
+}

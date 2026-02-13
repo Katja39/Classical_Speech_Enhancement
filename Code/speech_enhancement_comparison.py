@@ -6,9 +6,99 @@ import librosa
 import soundfile as sf
 from itertools import product
 from typing import Dict, Any
+from scipy.signal import correlate
 
 from parameter_ranges import param_ranges_ss, param_ranges_mmse, param_ranges_wiener, param_ranges_omlsa
 from evaluation_metrics import calculate_pesq, calculate_stoi, calculate_snr, calculate_combined_speech_score
+
+def to_mono(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim == 1:
+        return x
+    if x.shape[0] >= x.shape[1]:
+        return np.mean(x, axis=1)
+    return np.mean(x, axis=0)
+
+def resample_to(x: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
+    if sr_in == sr_out:
+        return x
+    return librosa.resample(x, orig_sr=sr_in, target_sr=sr_out)
+
+def match_length(x: np.ndarray, L: int) -> np.ndarray:
+    x = np.asarray(x, dtype=np.float64)
+    if len(x) > L:
+        return x[:L]
+    if len(x) < L:
+        return np.pad(x, (0, L - len(x)))
+    return x
+
+def align_to_reference(ref: np.ndarray, sig: np.ndarray, sr: int,
+                       max_shift_s: float = 0.10, corr_seconds: float = 2.0) -> np.ndarray:
+
+    ref = np.asarray(ref, dtype=np.float64)
+    sig = np.asarray(sig, dtype=np.float64)
+
+    N = int(min(len(ref), len(sig), corr_seconds * sr))
+    if N < 256:
+        return sig
+
+    ref0 = ref[:N] - np.mean(ref[:N])
+    sig0 = sig[:N] - np.mean(sig[:N])
+
+    c = correlate(ref0, sig0, mode="full", method="auto")
+    lags = np.arange(-len(sig0) + 1, len(ref0))
+
+    max_lag = int(max_shift_s * sr)
+    keep = (lags >= -max_lag) & (lags <= max_lag)
+    if not np.any(keep):
+        return sig
+
+    lag = int(lags[keep][np.argmax(c[keep])])
+
+    if lag > 0:
+        sig_aligned = np.pad(sig, (lag, 0))
+    elif lag < 0:
+        sig_aligned = sig[abs(lag):]
+    else:
+        sig_aligned = sig
+
+    return sig_aligned
+
+def prepare_pair(clean: np.ndarray, sr_c: int, noisy: np.ndarray, sr_n: int,
+                 target_sr: int = 16000, do_align: bool = True) -> tuple[np.ndarray, np.ndarray, int]:
+    clean = to_mono(clean)
+    noisy = to_mono(noisy)
+
+    clean = resample_to(clean, sr_c, target_sr)
+    noisy = resample_to(noisy, sr_n, target_sr)
+
+    # coarse length equalization before alignment
+    L = min(len(clean), len(noisy))
+    clean = clean[:L]
+    noisy = noisy[:L]
+
+    if do_align:
+        noisy_aligned = align_to_reference(clean, noisy, target_sr, max_shift_s=0.10, corr_seconds=2.0)
+        # enforce same length
+        noisy = match_length(noisy_aligned, len(clean))
+
+    return clean, noisy, target_sr
+
+def finalize_enhanced(enhanced: np.ndarray, clean_ref: np.ndarray, sr: int,
+                      do_align: bool = True) -> np.ndarray:
+    enhanced = to_mono(enhanced)
+
+    if do_align:
+        enhanced = align_to_reference(clean_ref, enhanced, sr, max_shift_s=0.10, corr_seconds=2.0)
+
+    enhanced = match_length(enhanced, len(clean_ref))
+
+    if not np.all(np.isfinite(enhanced)):
+        return None
+
+    enhanced = np.clip(enhanced, -1.0, 1.0)
+    return enhanced
+
 
 def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, param_ranges) -> Dict[str, Any]:
     print(f"\n{'=' * 60}")
@@ -67,6 +157,15 @@ def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, pa
             enhanced = algorithm_function(noisy_audio, sr, **param_dict)
             if enhanced is None or len(enhanced) == 0:
                 continue
+
+            enhanced = np.asarray(enhanced, dtype=np.float64)
+
+            enhanced = finalize_enhanced(enhanced, clean_reference, sr, do_align=True)
+            if enhanced is None:
+                continue
+
+            # fürs WAV & PESQ
+            enhanced = np.clip(enhanced, -1.0, 1.0)
 
             stoi_score = calculate_stoi(clean_reference, enhanced, sr)
             pesq_score = calculate_pesq(clean_reference, enhanced, sr)
@@ -151,8 +250,7 @@ def _find_pairs(data_dir: str):
     pairs = []
     for cf in clean_files:
         stem = re.sub(r"(?i)_clean\.wav$", "", cf)
-        candidates = [f"{stem}_noisy.wav", f"{stem}_noise.wav", f"{stem}_noiseWithMusic.wav",
-                      f"{stem}_noisewithmusic.wav"]
+        candidates = [f"{stem}_noisy.wav", f"{stem}_noise.wav"]
         fallback = [f for f in wavs if f.lower().startswith(stem.lower()) and (
                     "noise" in f.lower() or "noisy" in f.lower()) and f.lower() != cf.lower()]
         noisy = next((c for c in candidates if c in wavs), fallback[0] if len(fallback) == 1 else None)
@@ -163,17 +261,6 @@ def _find_pairs(data_dir: str):
 def _ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
 
-
-def _resample_if_needed(x, sr_x, sr_target):
-    if sr_x == sr_target: return x
-    return librosa.resample(x, orig_sr=sr_x, target_sr=sr_target)
-
-
-def _mean(vals):
-    vals = [v for v in vals if v is not None]
-    return float(np.mean(vals)) if vals else None
-
-
 def _fmt(x, digits=4):
     if x is None: return "NA"
     return f"{x:.{digits}f}"
@@ -182,11 +269,14 @@ def run_algorithm_on_pair(alg_name, alg_fn, param_ranges, clean, noisy, sr, out_
     print(f" Running optimization for {alg_name}...")
 
     def algorithm_wrapper(noisy_audio, sr, **params):
+        import inspect
+        sig = inspect.signature(alg_fn)
+
         if params.get('noise_method') == 'true_noise':
-            try:
+            if 'clean_audio' in sig.parameters:
                 return alg_fn(noisy_audio, sr, clean_audio=clean, **params)
-            except TypeError:
-                return alg_fn(noisy_audio, sr, **params)
+            else:
+                raise ValueError(f"{alg_name} unterstützt 'true_noise' nicht (kein clean_audio Parameter)")
         return alg_fn(noisy_audio, sr, **params)
 
     opt = optimize_parameters(clean, noisy, sr, algorithm_wrapper, param_ranges)
@@ -200,6 +290,10 @@ def run_algorithm_on_pair(alg_name, alg_fn, param_ranges, clean, noisy, sr, out_
     path_stoi = os.path.join(out_dir, f"{stem}_{alg_name}_optimized_stoi.wav")
     path_pesq = os.path.join(out_dir, f"{stem}_{alg_name}_optimized_pesq.wav")
     path_bal = os.path.join(out_dir, f"{stem}_{alg_name}_optimized_balanced.wav")
+
+    enhanced_stoi = np.asarray(enhanced_stoi, dtype=np.float32)
+    enhanced_pesq = np.asarray(enhanced_pesq, dtype=np.float32)
+    enhanced_bal = np.asarray(enhanced_bal, dtype=np.float32)
 
     sf.write(path_stoi, enhanced_stoi, sr)
     sf.write(path_pesq, enhanced_pesq, sr)
@@ -331,12 +425,10 @@ def main():
     for i, p in enumerate(pairs, 1):
         stem = p["stem"]
         print(f"\n[{i}/{len(pairs)}] Processing: {stem}")
-        clean, sr_c = librosa.load(p["clean"], sr=None)
-        noisy, sr_n = librosa.load(p["noisy"], sr=None)
-        clean = _resample_if_needed(clean, sr_c, target_sr)
-        noisy = _resample_if_needed(noisy, sr_n, target_sr)
-        L = min(len(clean), len(noisy))
-        clean, noisy = clean[:L], noisy[:L]
+        clean_raw, sr_c = librosa.load(p["clean"], sr=None, mono=False)
+        noisy_raw, sr_n = librosa.load(p["noisy"], sr=None, mono=False)
+
+        clean, noisy, sr = prepare_pair(clean_raw, sr_c, noisy_raw, sr_n, target_sr=target_sr, do_align=True)
 
         for alg_name, alg_fn, ranges, out_dir in algorithms:
             # Check if exists in JSON

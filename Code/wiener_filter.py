@@ -21,46 +21,75 @@ def wiener_filter(noisy_audio, sr,
     """
 
     noisy_audio = np.asarray(noisy_audio, dtype=np.float64)
+    if noisy_audio.ndim > 1:
+        noisy_audio = np.mean(noisy_audio, axis=1)
+
     original_length = len(noisy_audio)
     eps = 1e-10
 
-    stft_noisy = librosa.stft(noisy_audio, n_fft=n_fft, hop_length=hop_length, win_length=n_fft)
-    power_noisy = np.abs(stft_noisy) ** 2
-    num_freq_bins, num_frames = stft_noisy.shape
-
-    noise_psd_all = noise_estimation(
-        noisy_audio, sr=sr, n_fft=n_fft, hop_length=hop_length, win_length=n_fft,
-        percentile=noise_percentile, method=noise_method, clean_audio=clean_audio, eps=eps
+    stft_kwargs = dict(
+        n_fft=n_fft, hop_length=hop_length, win_length=n_fft,
+        window="hann", center=True, pad_mode="reflect"
     )
 
-    is_adaptive = (noise_psd_all.shape[1] > 1)
-    wiener_gain = np.zeros((num_freq_bins, num_frames), dtype=np.float64)
+    Y = librosa.stft(noisy_audio, **stft_kwargs)
 
-    prev_gain = np.ones((num_freq_bins, 1)) * gain_floor
-    prev_power_noisy = power_noisy[:, 0:1]
+    power_noisy = np.abs(Y) ** 2
+    n_bins, n_frames = Y.shape
 
+    noise_psd_all = noise_estimation(
+        noisy_audio, sr=sr,
+        n_fft=n_fft, hop_length=hop_length, win_length=n_fft,
+        window=stft_kwargs["window"], center=stft_kwargs["center"], pad_mode=stft_kwargs["pad_mode"],
+        percentile=noise_percentile, method=noise_method,
+        clean_audio=clean_audio, eps=eps
+    )
+    noise_psd_all = np.maximum(noise_psd_all, eps)
+    is_adaptive = (noise_psd_all.ndim == 2 and noise_psd_all.shape[1] > 1)
 
-    for t in range(num_frames):
+    G = np.zeros((n_bins, n_frames), dtype=np.float64)
+    prev_gain = np.ones((n_bins, 1), dtype=np.float64)
+    prev_gamma = np.ones((n_bins, 1), dtype=np.float64)
+    #prev_power_noisy = power_noisy[:, 0:1]
+
+    for t in range(n_frames):
+        #noise profile
         curr_noise = noise_psd_all[:, t:t + 1] if is_adaptive else noise_psd_all
+        curr_noise = np.maximum(curr_noise, eps)
+
+        # A-posteriori SNR
         gamma = np.maximum(power_noisy[:, t:t + 1] / curr_noise, eps)
+
+        direct = np.maximum(gamma - 1.0, 0.0)
 
         # Decision-Directed A-priori SNR
         if t == 0:
-            ksi = np.maximum(gamma - 1.0, 0.0)
+            ksi = direct
         else:
-            recursive_part = (prev_gain ** 2) * prev_power_noisy / curr_noise
-            direct_part = np.maximum(gamma - 1.0, 0.0)
-            ksi = alpha * recursive_part + (1.0 - alpha) * direct_part
+            recursive = (prev_gain ** 2) * prev_gamma
+            ksi = alpha * recursive + (1.0 - alpha) * direct
 
         ksi = np.maximum(ksi, 1e-10)
 
+        # Wiener Gain
+        gain = ksi / (1.0 + ksi)
 
-        gain = np.clip(ksi / (1.0 + ksi), gain_floor, 1.0)
-        wiener_gain[:, t:t + 1] = gain
+        # Clipping
+        gain = np.clip(gain, gain_floor, 1.0)
 
+        G[:, t:t + 1] = gain
         prev_gain = gain
-        prev_power_noisy = power_noisy[:, t:t + 1]
+        prev_gamma = gamma
+        #prev_power_noisy = power_noisy[:, t:t + 1]
 
-    stft_clean = stft_noisy * wiener_gain
-    enhanced = librosa.istft(stft_clean, hop_length=hop_length, win_length=n_fft)
-    return librosa.util.fix_length(enhanced, size=original_length)
+    S = Y * G
+
+    enhanced_audio = librosa.istft(
+        S,
+        hop_length=stft_kwargs["hop_length"],
+        win_length=stft_kwargs["win_length"],
+        window=stft_kwargs["window"],
+        center=stft_kwargs["center"],
+        length=original_length
+    )
+    return enhanced_audio

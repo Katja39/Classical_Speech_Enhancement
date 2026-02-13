@@ -16,9 +16,6 @@ def calculate_pesq(clean_reference, test_audio, sr):
         if sr == 16000:
             mode = 'wb'
             sr_pesq = 16000
-        elif sr == 8000:
-            mode = 'nb'
-            sr_pesq = 8000
         else:
             clean_trimmed = librosa.resample(clean_trimmed, orig_sr=sr, target_sr=16000)
             test_trimmed = librosa.resample(test_trimmed, orig_sr=sr, target_sr=16000)
