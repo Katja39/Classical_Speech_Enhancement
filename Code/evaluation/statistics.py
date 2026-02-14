@@ -45,6 +45,8 @@ def plot_algorithm_summary(
         show_noisy_lines=None,
         metric_labels=None,
         include_algs=None,
+        filter_metric=None,
+        filter_max=None,
         value_format="{:.3f}",
         figsize=(10, 6)):
 
@@ -59,6 +61,19 @@ def plot_algorithm_summary(
             print("No data left after filtering algorithms.")
             return
 
+    if filter_metric is not None:
+        if filter_metric not in df.columns:
+            print(f"Warning: filter_metric '{filter_metric}' not found, skipping filter.")
+        else:
+            before = len(df)
+            if filter_max is not None:
+                df = df[df[filter_metric] <= filter_max]
+            after = len(df)
+            print(f"Filtered by {filter_metric} <= {filter_max}): {after} of {before} rows kept.")
+            if after == 0:
+                print("No data left after filtering.")
+                return
+
     available_metrics = [m for m in metrics if m in df.columns]
     missing = set(metrics) - set(available_metrics)
     if missing:
@@ -71,9 +86,11 @@ def plot_algorithm_summary(
     # Mean per algorithm for each metric
     summary = df.groupby('alg')[available_metrics].mean()
 
+    counts = df.groupby('alg').size()
     out_dict = {}
     for alg in summary.index:
         out_dict[alg] = {met: summary.loc[alg, met] for met in available_metrics}
+        out_dict[alg]['count'] = int(counts[alg])
 
     # Print summary table
     print("\nAverage values per algorithm:")
@@ -112,7 +129,7 @@ def plot_algorithm_summary(
             ax.axhline(y=mean_noisy, color=line_color, linestyle='--', linewidth=1.5,
                        label=f'{noisy_metric} (avg)')
 
-            ax.text(-0.5, mean_noisy - 0.06, f'{mean_noisy:.3f}',
+            ax.text(0.35, mean_noisy + 0.33 , f'{mean_noisy:.3f}',
                     transform=ax.get_xaxis_transform(),
                     ha='left', va='center', fontsize=plt.rcParams['font.size'], color=line_color,
                     clip_on=False)
@@ -145,30 +162,103 @@ def plot_algorithm_summary(
 
 if __name__ == "__main__":
     # STOI Vergleich aller Tests (ohne mmse) mit true noise
+    #plot_algorithm_summary(
+    #    folder_filter_func=lambda name: "mitTrueNoise" in name,
+    #    output_json="meanBestSTOI_allAlgorithms_trueNoise.json",
+    #    metrics=["stoi_stoiopt"],
+    #    metric_labels={
+    #        "stoi_stoiopt": "STOI optimiert",
+    #        "stoi_noisy (avg)": "STOI vor Optimierung",
+    #    },
+    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
+    #    title="Durchschnittlicher bester STOI – mit true noise",
+    #    show_values=True,
+    #    show_noisy_lines=True
+    #)
+
+    # PESQ Vergleich aller Tests (ohne mmse) mit true noise
+    #plot_algorithm_summary(
+    #    folder_filter_func=lambda name: "mitTrueNoise" in name,
+    #    output_json="meanBestPESQ_allAlgorithms_trueNoise.json",
+    #    metrics=["pesq_pesqopt"],
+    #    metric_labels={
+    #        "pesq_pesqopt": "PESQ optimiert",
+    #        "pesq_noisy (avg)": "PESQ vor Optimierung",
+    #    },
+    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
+    #    title="Durchschnittlicher bester PESQ – mit true noise",
+    #    show_values=True,
+    #    show_noisy_lines=True
+    #)
+
+    # STOI Vergleich aller Tests (ohne mmse) ohne true noise
+    # plot_algorithm_summary(
+    #    folder_filter_func=lambda name: "ohneTrueNoise" in name,
+    #    output_json="meanBestSTOI_allAlgorithms_withoutTrueNoise.json",
+    #    metrics=["stoi_stoiopt"],
+    #   metric_labels={
+    #        "stoi_stoiopt": "STOI optimiert",
+    #        "stoi_noisy (avg)": "STOI vor Optimierung",
+    #    },
+    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
+    #    title="Durchschnittlicher bester STOI – ohne true noise",
+    #    show_values=True,
+    #    show_noisy_lines=True
+    # )
+
+    #PESQ Vergleich aller Tests (ohne mmse) ohne true noise
+    #plot_algorithm_summary(
+    #    folder_filter_func=lambda name: "ohneTrueNoise" in name,
+    #    output_json="meanBestPESQ_allAlgorithms_withoutTrueNoise.json",
+    #    metrics=["pesq_pesqopt"],
+    #    metric_labels={
+    #        "pesq_pesqopt": "PESQ optimiert",
+    #        "pesq_noisy (avg)": "PESQ vor Optimierung",
+    #    },
+    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
+    #    title="Durchschnittlicher bester PESQ – ohne true noise",
+    #    show_values=True,
+    #    show_noisy_lines=True
+    #)
+
+#Vergleich bei schlechter Qualität, welcher Algorithmus schneidet da besser ab?
     plot_algorithm_summary(
-        folder_filter_func=lambda name: "mitTrueNoise" in name,
-        output_json="meanBestSTOI_allAlgorithms_trueNoise.json",
+        folder_filter_func=lambda name: "ohneTrueNoise" in name,
+        output_json="meanBestSTOI_lowQuality_withoutTrueNoise.json",
         metrics=["stoi_stoiopt"],
         metric_labels={
-            "stoi_stoiopt": "STOI (optimiert)",
-            "stoi_noisy (avg)": "STOI vor der Optimierung",  # ← Label muss exakt so lauten
+            "stoi_stoiopt": "STOI optimiert",
+            "stoi_noisy (avg)": "STOI vor Optimierung (niedrige Qualität)"
         },
         include_algs=["spectralSubtractor", "wiener", "omlsa"],
-        title="Durchschnittlicher bester STOI – mit true noise",
+        filter_metric="stoi_noisy",
+        filter_max=0.7,
+        title="Durchschnittlicher STOI (optimiert) – mit STOI ≤ 0.7",
         show_values=True,
         show_noisy_lines=True
     )
 
-#Vergleich bei sehr schlechter Qualität, welcher Algorithmus schneidet da besser ab?
+    #plot_algorithm_summary(
+    #    folder_filter_func=lambda name: "ohneTrueNoise" in name,
+    #    output_json="meanBestPESQ_lowQuality_withoutTrueNoise.json",
+    #    metrics=["pesq_pesqopt"],
+    #    metric_labels={
+    #        "pesq_pesqopt": "PESQ optimiert",
+    #        "pesq_pesq (avg)": "PESQ vor Optimierung (niedrige Qualität)"
+    #    },
+    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
+    #    filter_metric="pesq_noisy",
+    #    filter_max=1.4,
+    #    title="Durchschnittlicher PESQ (optimiert) – mit PESQ ≤ 1.4",
+    #    show_values=True,
+    #    show_noisy_lines=True
+    #)
 
 
 
 
 #STOI vs. PESQ Trade-off - „Algorithmus A maximiert Qualität, Algorithmus B Verständlichkeit“
 #Unterschied von STOI und PESQ Optimierung
-
-
-
 
 #Testszenarien
 #Ergebnisse bei Rauschen (mit true noise)

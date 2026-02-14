@@ -5,7 +5,7 @@ param_ranges_ss = {
     "n_fft": [512, 1024],
     "hop_length": [128, 256],
     "noise_percentile": [10.0, 20.0],
-     "noise_method": ["true_noise"]
+     "noise_method": ["percentile", "min_tracking"]
 }
 
 param_ranges_mmse = {
@@ -16,7 +16,7 @@ param_ranges_mmse = {
     "n_fft": [512, 1024],
     "hop_length": [128, 256],
     "noise_percentile": [10.0, 20.0],
-    "noise_method": ["true_noise"]#"percentile", "min_tracking"
+    "noise_method": ["percentile", "min_tracking"]#"percentile", "min_tracking"
 }
 
 param_ranges_wiener = {
@@ -25,7 +25,7 @@ param_ranges_wiener = {
     "n_fft": [512, 1024],
     "hop_length": [128, 256],
     "noise_percentile": [10.0, 20.0],
-     "noise_method": ["true_noise"]
+     "noise_method": ["percentile", "min_tracking"]
 }
 
 param_ranges_omlsa = {
@@ -37,5 +37,5 @@ param_ranges_omlsa = {
     "n_fft": [512, 1024],
     "hop_length": [128, 256],
     "noise_percentile": [10.0, 20.0],
-     "noise_method": ["true_noise"]
+     "noise_method": ["percentile", "min_tracking"]
 }

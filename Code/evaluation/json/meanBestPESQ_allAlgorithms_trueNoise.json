@@ -1,0 +1,11 @@
+{
+  "omlsa": {
+    "pesq_pesqopt": 3.079690568976932
+  },
+  "spectralSubtractor": {
+    "pesq_pesqopt": 3.2880619543570058
+  },
+  "wiener": {
+    "pesq_pesqopt": 3.1378399795956082
+  }
+}

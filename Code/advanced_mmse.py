@@ -105,7 +105,7 @@ def advanced_mmse(noisy_audio, sr, n_fft, hop_length, alpha, ksi_min,
 
         #Speech Presence Probability (SPP) calculation
         lambda_spp = (1.0 / (1.0 + ksi)) * np.exp(v)
-        term = (q_val / ((1.0 - q_val) * lambda_spp + eps))
+        term = (1.0 - q_val) / (q_val * lambda_spp + eps)
         p_speech = np.clip(1.0 / (1.0 + term), 0.0, 1.0)
 
         # Combined gain: interpolate between LSA gain and gain floor based on SPP
