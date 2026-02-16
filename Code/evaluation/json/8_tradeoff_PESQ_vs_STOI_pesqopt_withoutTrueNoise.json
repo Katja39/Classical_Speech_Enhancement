@@ -1,0 +1,49 @@
+{
+  "variant": "pesqopt",
+  "stoi_col": "stoi_pesqopt",
+  "pesq_col": "pesq_pesqopt",
+  "filters": {
+    "include_algs": [
+      "spectralSubtractor",
+      "wiener",
+      "omlsa"
+    ],
+    "filter_metric": null,
+    "filter_max": null
+  },
+  "per_algorithm": {
+    "omlsa": {
+      "count": 73,
+      "mean_d_stoi": -0.02326313830309435,
+      "std_d_stoi": 0.017590976099416417,
+      "median_d_stoi": -0.02425855218247852,
+      "mean_d_pesq": 0.453071899610023,
+      "std_d_pesq": 0.30511527770105495,
+      "median_d_pesq": 0.4023698568344116,
+      "pct_d_stoi_negative": 93.15068493150685,
+      "pct_d_pesq_negative": 0.0
+    },
+    "spectralSubtractor": {
+      "count": 73,
+      "mean_d_stoi": -0.020705332572391117,
+      "std_d_stoi": 0.02183017688031441,
+      "median_d_stoi": -0.017983292405966855,
+      "mean_d_pesq": 0.33658471499403864,
+      "std_d_pesq": 0.2584279077548325,
+      "median_d_pesq": 0.2844496965408325,
+      "pct_d_stoi_negative": 84.93150684931507,
+      "pct_d_pesq_negative": 0.0
+    },
+    "wiener": {
+      "count": 73,
+      "mean_d_stoi": -0.03118497482742274,
+      "std_d_stoi": 0.025233635340314788,
+      "median_d_stoi": -0.03165894134094094,
+      "mean_d_pesq": 0.4317997106134075,
+      "std_d_pesq": 0.2883870356074407,
+      "median_d_pesq": 0.40438807010650635,
+      "pct_d_stoi_negative": 87.67123287671232,
+      "pct_d_pesq_negative": 0.0
+    }
+  }
+}

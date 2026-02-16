@@ -1,0 +1,51 @@
+{
+  "metric": "stoi_stoiopt",
+  "delta_to_noisy": true,
+  "value_column_used": "delta_stoi_stoiopt",
+  "noisy_column_used": "stoi_noisy",
+  "scenarios": {
+    "rauschen": "Rauschen",
+    "musik": "Musik",
+    "menschen": "Stimmen",
+    "kombi": "Kombination"
+  },
+  "algorithms": [
+    "spectralSubtractor",
+    "wiener",
+    "omlsa"
+  ],
+  "table_mean": {
+    "spectralSubtractor": {
+      "Rauschen": 0.06144765462121931,
+      "Musik": 0.08312572727397391,
+      "Kombination": 0.11192628376327483
+    },
+    "wiener": {
+      "Rauschen": 0.053678641303046566,
+      "Musik": 0.06462487152582241,
+      "Kombination": 0.07636129295277584
+    },
+    "omlsa": {
+      "Rauschen": 0.04900066520566932,
+      "Musik": 0.06836272898715716,
+      "Kombination": 0.07982858351647916
+    }
+  },
+  "table_count": {
+    "spectralSubtractor": {
+      "Rauschen": 26,
+      "Musik": 12,
+      "Kombination": 16
+    },
+    "wiener": {
+      "Rauschen": 26,
+      "Musik": 12,
+      "Kombination": 16
+    },
+    "omlsa": {
+      "Rauschen": 26,
+      "Musik": 12,
+      "Kombination": 16
+    }
+  }
+}

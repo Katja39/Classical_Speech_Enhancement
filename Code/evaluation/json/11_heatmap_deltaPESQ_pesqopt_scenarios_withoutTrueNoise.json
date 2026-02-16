@@ -1,0 +1,57 @@
+{
+  "metric": "pesq_pesqopt",
+  "delta_to_noisy": true,
+  "value_column_used": "delta_pesq_pesqopt",
+  "noisy_column_used": "pesq_noisy",
+  "scenarios": {
+    "rauschen": "Rauschen",
+    "musik": "Musik",
+    "menschen": "Stimmen",
+    "kombi": "Kombination"
+  },
+  "algorithms": [
+    "spectralSubtractor",
+    "wiener",
+    "omlsa"
+  ],
+  "table_mean": {
+    "spectralSubtractor": {
+      "Rauschen": 0.4428665041923523,
+      "Musik": 0.4887133538722992,
+      "Stimmen": 0.1904192809705381,
+      "Kombination": 0.34957539290189743
+    },
+    "wiener": {
+      "Rauschen": 0.6381441156069437,
+      "Musik": 0.4892628987630208,
+      "Stimmen": 0.26374659273359513,
+      "Kombination": 0.4401545003056526
+    },
+    "omlsa": {
+      "Rauschen": 0.6845524774657356,
+      "Musik": 0.5680120686690012,
+      "Stimmen": 0.26824638137110957,
+      "Kombination": 0.418344184756279
+    }
+  },
+  "table_count": {
+    "spectralSubtractor": {
+      "Rauschen": 18,
+      "Musik": 12,
+      "Stimmen": 27,
+      "Kombination": 16
+    },
+    "wiener": {
+      "Rauschen": 18,
+      "Musik": 12,
+      "Stimmen": 27,
+      "Kombination": 16
+    },
+    "omlsa": {
+      "Rauschen": 18,
+      "Musik": 12,
+      "Stimmen": 27,
+      "Kombination": 16
+    }
+  }
+}

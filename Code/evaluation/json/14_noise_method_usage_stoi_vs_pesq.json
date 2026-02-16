@@ -1,0 +1,45 @@
+{
+  "show_percent": true,
+  "filters": {
+    "include_algs": [
+      "spectralSubtractor",
+      "wiener",
+      "omlsa"
+    ],
+    "filter_metric": null,
+    "filter_max": null
+  },
+  "stoi_opt_counts": {
+    "min_tracking": {
+      "spectralSubtractor": 42,
+      "wiener": 1,
+      "omlsa": 17
+    },
+    "percentile": {
+      "spectralSubtractor": 31,
+      "wiener": 72,
+      "omlsa": 56
+    }
+  },
+  "pesq_opt_counts": {
+    "min_tracking": {
+      "spectralSubtractor": 66,
+      "wiener": 61,
+      "omlsa": 67
+    },
+    "percentile": {
+      "spectralSubtractor": 7,
+      "wiener": 12,
+      "omlsa": 6
+    }
+  },
+  "methods": [
+    "min_tracking",
+    "percentile"
+  ],
+  "algorithms": [
+    "spectralSubtractor",
+    "wiener",
+    "omlsa"
+  ]
+}
