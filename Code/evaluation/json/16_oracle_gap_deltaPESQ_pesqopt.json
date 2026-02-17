@@ -1,0 +1,117 @@
+{
+  "metric": "pesq_pesqopt",
+  "delta_to_noisy": true,
+  "true_value_col": "delta_pesq_pesqopt",
+  "est_value_col": "delta_pesq_pesqopt",
+  "algorithms": [
+    "spectralSubtractor",
+    "wiener",
+    "omlsa"
+  ],
+  "scenarios": {
+    "rauschen": "Rauschen",
+    "musik": "Musik",
+    "menschen": "Stimmen",
+    "kombi": "Kombination"
+  },
+  "means_true": {
+    "spectralSubtractor": {
+      "Rauschen": 1.7557090704257672,
+      "Musik": 1.9004786014556885,
+      "Stimmen": 1.3781595627466838,
+      "Kombination": 1.9167662039399147
+    },
+    "wiener": {
+      "Rauschen": 1.7059175876470714,
+      "Musik": 1.6333349148432414,
+      "Stimmen": 1.2740704483456082,
+      "Kombination": 1.6910359635949135
+    },
+    "omlsa": {
+      "Rauschen": 1.5900185979329622,
+      "Musik": 1.6739588975906372,
+      "Stimmen": 1.1907640783875078,
+      "Kombination": 1.652649573981762
+    }
+  },
+  "means_est": {
+    "spectralSubtractor": {
+      "Rauschen": 0.4428665041923523,
+      "Musik": 0.4887133538722992,
+      "Stimmen": 0.1904192809705381,
+      "Kombination": 0.34957539290189743
+    },
+    "wiener": {
+      "Rauschen": 0.6381441156069437,
+      "Musik": 0.4892628987630208,
+      "Stimmen": 0.26374659273359513,
+      "Kombination": 0.4401545003056526
+    },
+    "omlsa": {
+      "Rauschen": 0.6845524774657356,
+      "Musik": 0.5680120686690012,
+      "Stimmen": 0.26747916804419625,
+      "Kombination": 0.418344184756279
+    }
+  },
+  "diff_true_minus_est": {
+    "spectralSubtractor": {
+      "Rauschen": 1.3128425662334149,
+      "Musik": 1.4117652475833893,
+      "Stimmen": 1.1877402817761458,
+      "Kombination": 1.5671908110380173
+    },
+    "wiener": {
+      "Rauschen": 1.0677734720401277,
+      "Musik": 1.1440720160802207,
+      "Stimmen": 1.010323855612013,
+      "Kombination": 1.2508814632892609
+    },
+    "omlsa": {
+      "Rauschen": 0.9054661204672266,
+      "Musik": 1.105946828921636,
+      "Stimmen": 0.9232849103433115,
+      "Kombination": 1.234305389225483
+    }
+  },
+  "counts_true": {
+    "spectralSubtractor": {
+      "Rauschen": 26,
+      "Musik": 12,
+      "Stimmen": 27,
+      "Kombination": 16
+    },
+    "wiener": {
+      "Rauschen": 26,
+      "Musik": 12,
+      "Stimmen": 27,
+      "Kombination": 16
+    },
+    "omlsa": {
+      "Rauschen": 26,
+      "Musik": 12,
+      "Stimmen": 27,
+      "Kombination": 16
+    }
+  },
+  "counts_est": {
+    "spectralSubtractor": {
+      "Rauschen": 18,
+      "Musik": 12,
+      "Stimmen": 54,
+      "Kombination": 16
+    },
+    "wiener": {
+      "Rauschen": 18,
+      "Musik": 12,
+      "Stimmen": 54,
+      "Kombination": 16
+    },
+    "omlsa": {
+      "Rauschen": 18,
+      "Musik": 12,
+      "Stimmen": 54,
+      "Kombination": 16
+    }
+  }
+}

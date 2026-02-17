@@ -786,7 +786,7 @@ if __name__ == "__main__":
     #    figsize=(8, 4)
     #)
 
-#TODO Menschen
+
     #ΔSTOI bei STOI-Optimierung (mit TrueNoise) über alle Szenarien
     #plot_scenario_heatmap(
     #    folder_filter_func=lambda name: ("mitTrueNoise" in name) and any(k in name for k in SCENARIOS),
@@ -799,18 +799,18 @@ if __name__ == "__main__":
     #    figsize=(8, 4)
     #)
 
-# TODO Menschen
-    #plot_scenario_heatmap(
-    #    folder_filter_func=lambda name: ("mitTrueNoise" in name)
-    #                                    and any(k in name for k in SCENARIOS),
-    #    scenarios=SCENARIOS,
-    #    metric="pesq_pesqopt",
-    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
-    #    delta_to_noisy=True,
-    #    title="ΔPESQ (PESQ-opt) nach Szenario – mit TrueNoise",
-    #    output_json="heatmap_deltaPESQ_pesqopt_scenarios_withTrueNoise.json",
-    #    figsize=(8, 4)
-    #)
+
+    plot_scenario_heatmap(
+        folder_filter_func=lambda name: ("mitTrueNoise" in name)
+                                        and any(k in name for k in SCENARIOS),
+        scenarios=SCENARIOS,
+        metric="pesq_pesqopt",
+        include_algs=["spectralSubtractor", "wiener", "omlsa"],
+        delta_to_noisy=True,
+        title="ΔPESQ (PESQ-opt) nach Szenario – mit TrueNoise",
+        output_json="heatmap_deltaPESQ_pesqopt_scenarios_withTrueNoise.json",
+        figsize=(8, 4)
+    )
 
 
     #Estimated noise percentile oder min tracking
@@ -822,30 +822,28 @@ if __name__ == "__main__":
     #    show_percent=True
     #)
 
-    #TODO Szenario Menschen with true noise
     #> 0: Oracle hilft - Noise-Schätzung limitiert um diesen Betrag
     #≈ 0: Noise-Schätzung ist “gut genug” oder Algorithmus wenig abhängig davon
-    #< 0  geschätztes Noise war im Mittel besser (Zufall/Overfitting/?)
     #nT = number TrueNoise
     #nE = number Estimated
-    plot_oracle_gap_heatmap(
-    folder_filter_func_true=lambda name: "mitTrueNoise" in name,
-    folder_filter_func_est=lambda name: "ohneTrueNoise" in name,
-    scenarios=SCENARIOS,
-    metric="stoi_stoiopt",
-    include_algs=["spectralSubtractor", "wiener", "omlsa"],
-    title="Performance-Gap (TrueNoise − Estimated): ΔSTOI (STOI-opt) nach Szenario",
-    output_json="oracle_gap_deltaSTOI_stoiopt.json",
-    figsize=(8, 4)
-    )
+    #plot_oracle_gap_heatmap(
+    #folder_filter_func_true=lambda name: "mitTrueNoise" in name,
+    #folder_filter_func_est=lambda name: "ohneTrueNoise" in name,
+    #scenarios=SCENARIOS,
+    #metric="stoi_stoiopt",
+    #include_algs=["spectralSubtractor", "wiener", "omlsa"],
+    #title="Performance-Gap (TrueNoise − Estimated): ΔSTOI (STOI-opt) nach Szenario",
+    #output_json="oracle_gap_deltaSTOI_stoiopt.json",
+    #figsize=(8, 4)
+    #)
 
-    plot_oracle_gap_heatmap(
-    folder_filter_func_true=lambda name: "mitTrueNoise" in name,
-    folder_filter_func_est=lambda name: "ohneTrueNoise" in name,
-    scenarios=SCENARIOS,
-    metric="pesq_pesqopt",
-    include_algs=["spectralSubtractor", "wiener", "omlsa"],
-    title="Performance-Gap (TrueNoise − Estimated): ΔSTOI (STOI-opt) nach Szenario",
-    output_json="oracle_gap_deltaPESQ_pesqopt.json",
-    figsize=(8, 4)
-    )
+    #plot_oracle_gap_heatmap(
+    #folder_filter_func_true=lambda name: "mitTrueNoise" in name,
+    #folder_filter_func_est=lambda name: "ohneTrueNoise" in name,
+    #scenarios=SCENARIOS,
+    #metric="pesq_pesqopt",
+    #include_algs=["spectralSubtractor", "wiener", "omlsa"],
+    #title="Performance-Gap (TrueNoise − Estimated): ΔPESQ (PESQ-opt) nach Szenario",
+    #output_json="oracle_gap_deltaPESQ_pesqopt.json",
+    #figsize=(8, 4)
+    #)

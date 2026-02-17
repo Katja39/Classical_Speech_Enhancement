@@ -18,16 +18,19 @@
     "spectralSubtractor": {
       "Rauschen": 1.7557090704257672,
       "Musik": 1.9004786014556885,
+      "Stimmen": 1.3781595627466838,
       "Kombination": 1.9167662039399147
     },
     "wiener": {
       "Rauschen": 1.7059175876470714,
       "Musik": 1.6333349148432414,
+      "Stimmen": 1.2740704483456082,
       "Kombination": 1.6910359635949135
     },
     "omlsa": {
       "Rauschen": 1.5900185979329622,
       "Musik": 1.6739588975906372,
+      "Stimmen": 1.1907640783875078,
       "Kombination": 1.652649573981762
     }
   },
@@ -35,16 +38,19 @@
     "spectralSubtractor": {
       "Rauschen": 26,
       "Musik": 12,
+      "Stimmen": 27,
       "Kombination": 16
     },
     "wiener": {
       "Rauschen": 26,
       "Musik": 12,
+      "Stimmen": 27,
       "Kombination": 16
     },
     "omlsa": {
       "Rauschen": 26,
       "Musik": 12,
+      "Stimmen": 27,
       "Kombination": 16
     }
   }
