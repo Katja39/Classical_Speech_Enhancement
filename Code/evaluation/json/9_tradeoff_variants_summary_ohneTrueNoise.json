@@ -1,0 +1,60 @@
+{
+  "variants": [
+    "stoiopt",
+    "balopt",
+    "pesqopt"
+  ],
+  "filters": {
+    "include_algs": [
+      "spectralSubtractor",
+      "wiener",
+      "omlsa"
+    ],
+    "filter_metric": null,
+    "filter_max": null
+  },
+  "per_algorithm": {
+    "omlsa": {
+      "stoiopt": {
+        "mean_d_stoi": 0.007162028316774749,
+        "mean_d_pesq": 0.07797139525413513
+      },
+      "balopt": {
+        "mean_d_stoi": -0.006501106747712601,
+        "mean_d_pesq": 0.3695264482498169
+      },
+      "pesqopt": {
+        "mean_d_stoi": -0.025791747538779008,
+        "mean_d_pesq": 0.40275471448898315
+      }
+    },
+    "spectralSubtractor": {
+      "stoiopt": {
+        "mean_d_stoi": 0.004722267261456322,
+        "mean_d_pesq": 0.07534656167030335
+      },
+      "balopt": {
+        "mean_d_stoi": -0.006620930763263163,
+        "mean_d_pesq": 0.27537168383598326
+      },
+      "pesqopt": {
+        "mean_d_stoi": -0.022966497331176748,
+        "mean_d_pesq": 0.29712004780769347
+      }
+    },
+    "wiener": {
+      "stoiopt": {
+        "mean_d_stoi": 0.007531857911427718,
+        "mean_d_pesq": 0.15949127674102784
+      },
+      "balopt": {
+        "mean_d_stoi": -0.005477271144631651,
+        "mean_d_pesq": 0.3405057442188263
+      },
+      "pesqopt": {
+        "mean_d_stoi": -0.03463487146604646,
+        "mean_d_pesq": 0.38642536878585815
+      }
+    }
+  }
+}

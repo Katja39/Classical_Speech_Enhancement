@@ -3,13 +3,28 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 RESULTS_SUMMARY_DIR = (SCRIPT_DIR / ".." / "results_summary").resolve()
 JSON_FILENAME = "all_results.json"
 
 _DF_CACHE: dict[tuple[str, ...], pd.DataFrame] = {}
+ALG_LABELS = {
+    "omlsa": "Log-MMSE",
+}
+
+plt.rcParams.update({
+    "font.size": 12,        # Standard
+    "axes.titlesize": 14,
+    "axes.labelsize": 13,
+    "xtick.labelsize": 12,
+    "ytick.labelsize": 12,
+    "legend.fontsize": 11,
+    "legend.title_fontsize": 11,
+})
+
+def rename_alg(name: str) -> str:
+    return ALG_LABELS.get(name, name)
 
 def write_json(obj, output_json: str | None):
     if not output_json:
@@ -137,7 +152,7 @@ def _plot_heatmap(means, counts, title, xlabel, ylabel,
     im = plt.imshow(data, aspect="auto")
     plt.colorbar(im)
     plt.xticks(range(means.shape[1]), means.columns, rotation=30, ha="right")
-    plt.yticks(range(means.shape[0]), means.index)
+    plt.yticks(range(means.shape[0]), [rename_alg(a) for a in means.index])
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -195,7 +210,8 @@ def plot_algorithm_summary(
     ax.set_title(title or "Average metric values per algorithm")
     ax.set_ylabel("Mean value")
     ax.set_xlabel("Algorithm")
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
+    ax.set_xticklabels([rename_alg(t.get_text()) for t in ax.get_xticklabels()],
+                       rotation=45, ha="right")
     ax.grid(axis="y", linestyle="--", alpha=0.7)
 
     if show_values:
@@ -209,15 +225,36 @@ def plot_algorithm_summary(
             noisy_metric = _noisy_col(metric) if metric.endswith(("_stoiopt", "_pesqopt", "_balopt")) else None
             if not noisy_metric or noisy_metric not in df.columns:
                 continue
+
+            y0 = float(df[noisy_metric].mean())
+
+            line_label = f"{noisy_metric} (avg)"
+            if metric_labels is not None:
+                line_label = metric_labels.get(line_label, line_label)
+
             ax.axhline(
-                y=float(df[noisy_metric].mean()),
+                y=y0,
                 color="red",
                 linestyle="--",
                 linewidth=1.5,
-                label=f"{noisy_metric} (avg)",
+                label=line_label,
+            )
+
+            x_mid = (len(summary.index) - 1) / 2 + 0.4
+            ax.text(
+                x_mid,
+                y0,
+                value_format.format(y0),
+                color="red",
+                ha="center",
+                va="bottom",
+                fontsize=12,
             )
 
     _apply_legend_labels(ax, metric_labels, title="Metric", loc="lower right")
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, title="Metric", loc="lower right")
+
     plt.tight_layout()
     plt.show()
 
@@ -291,11 +328,11 @@ def plot_tradeoff_scatter(
     plt.figure(figsize=figsize)
 
     for alg, g in d.groupby("alg"):
-        plt.scatter(g["d_stoi"], g["d_pesq"], alpha=alpha_points, label=f"{alg} (files)")
+        plt.scatter(g["d_stoi"], g["d_pesq"], alpha=alpha_points, label=f"{rename_alg(alg)} (files)")
         if show_means and len(g) > 0:
             m_stoi = out["per_algorithm"][alg]["mean_d_stoi"]
             m_pesq = out["per_algorithm"][alg]["mean_d_pesq"]
-            plt.scatter([m_stoi], [m_pesq], marker="X", s=160, edgecolors="black", linewidths=1.2, label=f"{alg} mean")
+            plt.scatter([m_stoi], [m_pesq], marker="X", s=160, edgecolors="black", linewidths=1.2, label=f"{rename_alg(alg)} mean")
 
     if show_origin_lines:
         plt.axvline(0, linestyle="--", linewidth=1)
@@ -358,7 +395,7 @@ def plot_tradeoff_variants_summary(
 
         xs = [p[1] for p in points]
         ys = [p[2] for p in points]
-        plt.plot(xs, ys, marker="o", linewidth=2, label=alg)
+        plt.plot(xs, ys, marker="o", linewidth=2, label=rename_alg(alg))
         for v, x, y in points:
             plt.text(x, y, f" {v}", fontsize=9, va="center")
 
@@ -519,7 +556,7 @@ def plot_noise_method_usage_grouped_side_by_side(
         bottom_pesq += vals_pesq
 
     ax.set_xticks(x)
-    ax.set_xticklabels(algs, rotation=45, ha="right")
+    ax.set_xticklabels([rename_alg(a) for a in algs], rotation=45, ha="right")
 
     minor_pos, minor_lab = [], []
     for i in range(len(algs)):
@@ -608,7 +645,7 @@ def plot_oracle_gap_heatmap(
     im = plt.imshow(diff.to_numpy(), aspect="auto")
     plt.colorbar(im)
     plt.xticks(range(len(scen_order)), scen_order, rotation=30, ha="right")
-    plt.yticks(range(len(alg_order)), alg_order)
+    plt.yticks(range(len(alg_order)), [rename_alg(a) for a in alg_order])
     plt.title(title or f"Oracle-Gap: TrueNoise − Estimated ({metric})" + (" (Δ vs noisy)" if delta_to_noisy else ""))
     plt.xlabel("Scenario")
     plt.ylabel("Algorithm")
@@ -631,20 +668,21 @@ def plot_oracle_gap_heatmap(
 
 
 if __name__ == "__main__":
-    # STOI Vergleich aller Tests (ohne mmse) mit true noise
-    #plot_algorithm_summary(
-    #    folder_filter_func=lambda name: "mitTrueNoise" in name,
-    #    output_json="meanBestSTOI_allAlgorithms_trueNoise.json",
-    #    metrics=["stoi_stoiopt"],
-    #    metric_labels={
-    #        "stoi_stoiopt": "STOI optimiert",
-    #        "stoi_noisy (avg)": "STOI vor Optimierung",
-    #    },
-    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
-    #    title="Durchschnittlicher bester STOI – mit true noise",
-    #    show_values=True,
-    #    show_noisy_lines=True
-    #)
+
+   # STOI Vergleich aller Tests (ohne mmse) mit true noise
+   # plot_algorithm_summary(
+   #     folder_filter_func=lambda name: "mitTrueNoise" in name,
+   #     output_json="meanBestSTOI_allAlgorithms_trueNoise.json",
+   #     metrics=["stoi_stoiopt"],
+   #     metric_labels={
+   #         "stoi_stoiopt": "STOI optimiert",
+   #         "stoi_noisy (avg)": "STOI vor Optimierung",
+   #     },
+   #     include_algs=["spectralSubtractor", "wiener", "omlsa"],
+   #     title="Durchschnittlicher bester STOI – mit true noise",
+   #     show_values=True,
+   #     show_noisy_lines=True
+   # )
 
     # PESQ Vergleich aller Tests (ohne mmse) mit true noise
     #plot_algorithm_summary(
@@ -661,20 +699,20 @@ if __name__ == "__main__":
     #    show_noisy_lines=True
     #)
 
-    # STOI Vergleich aller Tests (ohne mmse) ohne true noise
-    # plot_algorithm_summary(
-    #    folder_filter_func=lambda name: "ohneTrueNoise" in name,
-    #    output_json="meanBestSTOI_allAlgorithms_withoutTrueNoise.json",
-    #    metrics=["stoi_stoiopt"],
-    #   metric_labels={
-    #        "stoi_stoiopt": "STOI optimiert",
-    #        "stoi_noisy (avg)": "STOI vor Optimierung",
-    #    },
-    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
-    #    title="Durchschnittlicher bester STOI – ohne true noise",
-    #    show_values=True,
-    #    show_noisy_lines=True
-    # )
+     #STOI Vergleich aller Tests (ohne mmse) ohne true noise
+     #plot_algorithm_summary(
+     #   folder_filter_func=lambda name: "ohneTrueNoise" in name,
+     #   output_json="meanBestSTOI_allAlgorithms_withoutTrueNoise.json",
+     #   metrics=["stoi_stoiopt"],
+     #  metric_labels={
+     #       "stoi_stoiopt": "STOI optimiert",
+     #       "stoi_noisy (avg)": "STOI vor Optimierung",
+     #   },
+     #   include_algs=["spectralSubtractor", "wiener", "omlsa"],
+     #   title="Durchschnittlicher bester STOI – ohne true noise",
+     #   show_values=True,
+     #   show_noisy_lines=True
+     #)
 
     #PESQ Vergleich aller Tests (ohne mmse) ohne true noise
     #plot_algorithm_summary(
@@ -725,33 +763,33 @@ if __name__ == "__main__":
     #)
 
     #Trade-off: STOI-Optimierung (ohne TrueNoise)
-    #plot_tradeoff_scatter(
-    #    folder_filter_func=lambda name: "ohneTrueNoise" in name,
-    #    variant="stoiopt",
-    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
-    #    title="ΔSTOI vs ΔPESQ (STOI-Optimierung)",
-    #    figsize=(8, 6),
-    #    output_json="tradeoff_PESQ_vs_STOI_stoiopt_withoutTrueNoise.json"
-    #)
+    plot_tradeoff_scatter(
+        folder_filter_func=lambda name: "mitTrueNoise" in name,
+        variant="stoiopt",
+        include_algs=["spectralSubtractor", "wiener", "omlsa"],
+        title="ΔSTOI vs ΔPESQ (STOI-Optimierung)",
+        figsize=(8, 6),
+        output_json="tradeoff_PESQ_vs_STOI_stoiopt_withoutTrueNoise.json"
+    )
 
     # STOI vs. PESQ Trade-off
     # Trade-off: PESQ-Optimierung (ohne TrueNoise)
-    #plot_tradeoff_scatter(
-    #    folder_filter_func=lambda name: "ohneTrueNoise" in name,
-    #    variant="pesqopt",
-    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
-    #    title="ΔSTOI vs ΔPESQ (PESQ-Optimierung)",
-    #    figsize=(8, 6),
-    #    output_json="tradeoff_PESQ_vs_STOI_pesqopt_withoutTrueNoise.json"
-    #)
+    plot_tradeoff_scatter(
+        folder_filter_func=lambda name: "mitTrueNoise" in name,
+        variant="pesqopt",
+        include_algs=["spectralSubtractor", "wiener", "omlsa"],
+        title="ΔSTOI vs ΔPESQ (PESQ-Optimierung)",
+        figsize=(8, 6),
+        output_json="tradeoff_PESQ_vs_STOI_pesqopt_withoutTrueNoise.json"
+    )
 
     #Vergleich: STOI-opt vs Score-opt (0.5·STOI + 0.5·PESQ_norm) vs PESQ-opt (Mittelwerte)
-    #plot_tradeoff_variants_summary(
-    #    folder_filter_func=lambda name: "ohneTrueNoise" in name,
-    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
-    #    title="Vergleich: STOI-opt vs Score-opt vs PESQ-opt (Mittelwerte)",
-    #    output_json="tradeoff_variants_summary_ohneTrueNoise.json"
-    #)
+    plot_tradeoff_variants_summary(
+        folder_filter_func=lambda name: "mitTrueNoise" in name,
+        include_algs=["spectralSubtractor", "wiener", "omlsa"],
+        title="Vergleich: STOI-opt vs Score-opt vs PESQ-opt (Mittelwerte)",
+        output_json="tradeoff_variants_summary_ohneTrueNoise.json"
+    )
 
     # Testszenarien
 
@@ -800,22 +838,22 @@ if __name__ == "__main__":
     #)
 
 
-    plot_scenario_heatmap(
-        folder_filter_func=lambda name: ("mitTrueNoise" in name)
-                                        and any(k in name for k in SCENARIOS),
-        scenarios=SCENARIOS,
-        metric="pesq_pesqopt",
-        include_algs=["spectralSubtractor", "wiener", "omlsa"],
-        delta_to_noisy=True,
-        title="ΔPESQ (PESQ-opt) nach Szenario – mit TrueNoise",
-        output_json="heatmap_deltaPESQ_pesqopt_scenarios_withTrueNoise.json",
-        figsize=(8, 4)
-    )
+    #plot_scenario_heatmap(
+    #    folder_filter_func=lambda name: ("mitTrueNoise" in name)
+    #                                    and any(k in name for k in SCENARIOS),
+    #    scenarios=SCENARIOS,
+    #    metric="pesq_pesqopt",
+    #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
+    #    delta_to_noisy=True,
+    #    title="ΔPESQ (PESQ-opt) nach Szenario – mit TrueNoise",
+    #    output_json="heatmap_deltaPESQ_pesqopt_scenarios_withTrueNoise.json",
+    #    figsize=(8, 4)
+    #)
 
 
     #Estimated noise percentile oder min tracking
     #plot_noise_method_usage_grouped_side_by_side(
-    #    folder_filter_func=lambda name: "ohnetruenoise" in name,
+    #    folder_filter_func=lambda name: "ohneTrueNoise" in name,
     #    include_algs=["spectralSubtractor", "wiener", "omlsa"],
     #    title="Wahl der Noise-Estimation Methode (STOI-opt vs PESQ-opt)",
     #    output_json="noise_method_usage_stoi_vs_pesq_withoutTrueNoise.json",

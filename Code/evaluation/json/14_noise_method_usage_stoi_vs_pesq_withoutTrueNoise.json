@@ -11,21 +11,21 @@
   },
   "stoi_opt_counts": {
     "min_tracking": {
-      "spectralSubtractor": 42,
+      "spectralSubtractor": 61,
       "wiener": 1,
-      "omlsa": 17
+      "omlsa": 20
     },
     "percentile": {
-      "spectralSubtractor": 31,
-      "wiener": 72,
-      "omlsa": 56
+      "spectralSubtractor": 39,
+      "wiener": 99,
+      "omlsa": 80
     }
   },
   "pesq_opt_counts": {
     "min_tracking": {
-      "spectralSubtractor": 66,
-      "wiener": 61,
-      "omlsa": 67
+      "spectralSubtractor": 93,
+      "wiener": 88,
+      "omlsa": 94
     },
     "percentile": {
       "spectralSubtractor": 7,

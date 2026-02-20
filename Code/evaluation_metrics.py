@@ -5,7 +5,6 @@ import pesq
 
 # STOI – Speech intelligibility, 0–1, how well speech can be understood
 # PESQ – Speech quality, -0.5–4.5, how natural it sounds
-# ViSQOL – Speech quality, -0.5–4.5, better suited for modern audio processing
 
 def calculate_pesq(clean_reference, test_audio, sr):
     try:
