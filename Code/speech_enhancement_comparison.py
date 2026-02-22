@@ -12,6 +12,7 @@ from parameter_ranges import param_ranges_ss, param_ranges_mmse, param_ranges_wi
 from evaluation_metrics import calculate_pesq, calculate_stoi, calculate_snr, calculate_combined_speech_score
 
 def to_mono(x: np.ndarray) -> np.ndarray:
+    """Reduce multi-channel arrays to mono by averaging along the longer axis."""
     x = np.asarray(x, dtype=np.float64)
     if x.ndim == 1:
         return x
@@ -20,11 +21,13 @@ def to_mono(x: np.ndarray) -> np.ndarray:
     return np.mean(x, axis=0)
 
 def resample_to(x: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
+    """Resample signal to the target sample rate if needed."""
     if sr_in == sr_out:
         return x
     return librosa.resample(x, orig_sr=sr_in, target_sr=sr_out)
 
 def match_length(x: np.ndarray, L: int) -> np.ndarray:
+    """Trim or pad a signal to a target length."""
     x = np.asarray(x, dtype=np.float64)
     if len(x) > L:
         return x[:L]
@@ -34,6 +37,7 @@ def match_length(x: np.ndarray, L: int) -> np.ndarray:
 
 def align_to_reference(ref: np.ndarray, sig: np.ndarray, sr: int,
                        max_shift_s: float = 0.10, corr_seconds: float = 2.0) -> np.ndarray:
+    """Estimate time offset via cross-correlation and shift signal toward reference."""
 
     ref = np.asarray(ref, dtype=np.float64)
     sig = np.asarray(sig, dtype=np.float64)
@@ -66,6 +70,7 @@ def align_to_reference(ref: np.ndarray, sig: np.ndarray, sr: int,
 
 def prepare_pair(clean: np.ndarray, sr_c: int, noisy: np.ndarray, sr_n: int,
                  target_sr: int = 16000, do_align: bool = True) -> tuple[np.ndarray, np.ndarray, int]:
+    """Convert to mono, resample, and optionally align a clean/noisy pair."""
     clean = to_mono(clean)
     noisy = to_mono(noisy)
 
@@ -86,6 +91,7 @@ def prepare_pair(clean: np.ndarray, sr_c: int, noisy: np.ndarray, sr_n: int,
 
 def finalize_enhanced(enhanced: np.ndarray, clean_ref: np.ndarray, sr: int,
                       do_align: bool = True) -> np.ndarray:
+    """Post-process the enhanced signal (align, length-match, clip)."""
     enhanced = to_mono(enhanced)
 
     if do_align:
@@ -101,10 +107,12 @@ def finalize_enhanced(enhanced: np.ndarray, clean_ref: np.ndarray, sr: int,
 
 
 def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, param_ranges) -> Dict[str, Any]:
+    """Brute-force grid search for STOI, PESQ, and balance including baseline comparison."""
     print(f"\n{'=' * 60}")
     print("Parameter Optimization")
     print(f"{'=' * 60}")
 
+    # Baseline metrics before any enhancement
     baseline_stoi = calculate_stoi(clean_reference, noisy_audio, sr) or 0
     baseline_pesq = calculate_pesq(clean_reference, noisy_audio, sr) or 0
     baseline_snr = calculate_snr(clean_reference, noisy_audio) or 0
@@ -164,7 +172,6 @@ def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, pa
             if enhanced is None:
                 continue
 
-            # fürs WAV & PESQ
             enhanced = np.clip(enhanced, -1.0, 1.0)
 
             stoi_score = calculate_stoi(clean_reference, enhanced, sr)
@@ -245,6 +252,7 @@ def optimize_parameters(clean_reference, noisy_audio, sr, algorithm_function, pa
     }
 
 def _find_pairs(data_dir: str):
+    """Find matching clean/noisy WAV pairs in the given directory."""
     wavs = [f for f in os.listdir(data_dir) if f.lower().endswith(".wav")]
     clean_files = [f for f in wavs if "_clean" in f.lower()]
     pairs = []
@@ -259,24 +267,28 @@ def _find_pairs(data_dir: str):
     return pairs
 
 def _ensure_dir(path: str):
+    """Create a directory if it does not exist."""
     os.makedirs(path, exist_ok=True)
 
 def _fmt(x, digits=4):
+    """Format numbers for CSV/logs; return 'NA' when value is None."""
     if x is None: return "NA"
     return f"{x:.{digits}f}"
 
 def run_algorithm_on_pair(alg_name, alg_fn, param_ranges, clean, noisy, sr, out_dir, stem):
+    """Optimize one algorithm for a sample; save WAVs and metrics."""
     print(f" Running optimization for {alg_name}...")
 
     def algorithm_wrapper(noisy_audio, sr, **params):
         import inspect
         sig = inspect.signature(alg_fn)
 
+        # only route true_noise when the function accepts clean_audio
         if params.get('noise_method') == 'true_noise':
             if 'clean_audio' in sig.parameters:
                 return alg_fn(noisy_audio, sr, clean_audio=clean, **params)
             else:
-                raise ValueError(f"{alg_name} unterstützt 'true_noise' nicht (kein clean_audio Parameter)")
+                raise ValueError(f"{alg_name} does not support 'true_noise' (no clean_audio parameter)")
         return alg_fn(noisy_audio, sr, **params)
 
     opt = optimize_parameters(clean, noisy, sr, algorithm_wrapper, param_ranges)
@@ -327,6 +339,7 @@ def run_algorithm_on_pair(alg_name, alg_fn, param_ranges, clean, noisy, sr, out_
 
 
 def _compute_and_save_summary(all_results, algorithms, summary_dir):
+    """Compute per-algorithm means and store them as JSON."""
     print("\nComputing summary from existing results...")
     summary = {}
 
@@ -360,6 +373,7 @@ def _compute_and_save_summary(all_results, algorithms, summary_dir):
     return summary
 
 def main():
+    """CLI entry point: load data, optimize algorithms, collect results."""
     import argparse
     parser = argparse.ArgumentParser(description='PRECISE batch comparison')
     parser.add_argument('--sample', type=int, default=0)
@@ -399,10 +413,12 @@ def main():
                         if len(parts) >= 2: processed_file.add('_'.join(parts[:2]))
         return processed_file
 
+    # Only list already processed stems and exit
     if args.list_processed:
         for stem in sorted(get_processed_stems()): print(f" {stem}")
         return
 
+    # Resume logic: skip finished pairs or start from a specific stem
     if args.resume or args.start_from:
         print("\n" + "=" * 60 + "\nResume mode\n" + "=" * 60)
         processed_stems = get_processed_stems()
