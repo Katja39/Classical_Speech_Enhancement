@@ -53,10 +53,10 @@ TestAudio/*
 *.pyc
 *.xlsx
 /Code/OLD_results_summary
-/Code/results_summary
 /Code/data
 /Code/data_storage
 /Code/results_mmse
 /Code/results_omlsa
 /Code/results_spectralSubtractor
 /Code/results_wiener
+/Code/results_summary/diagrams

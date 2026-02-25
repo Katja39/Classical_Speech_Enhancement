@@ -1,0 +1,50 @@
+{
+  "spectralSubtractor": {
+    "count": 12,
+    "stoi_noisy_mean": 0.8120672767919696,
+    "pesq_noisy_mean": 1.2928548951943715,
+    "stoi_stoiopt_mean": 0.8142168201337056,
+    "pesq_stoiopt_mean": 1.3191902736822765,
+    "stoi_pesqopt_mean": 0.7915726701282049,
+    "pesq_pesqopt_mean": 1.473226437966029,
+    "stoi_balopt_mean": 0.8075616405254681,
+    "pesq_balopt_mean": 1.4522845943768818,
+    "snr_balopt_mean": 4.575782629575523
+  },
+  "mmse": {
+    "count": 12,
+    "stoi_noisy_mean": 0.8120672767919696,
+    "pesq_noisy_mean": 1.2928548951943715,
+    "stoi_stoiopt_mean": 0.78792366729134,
+    "pesq_stoiopt_mean": 1.242150644461314,
+    "stoi_pesqopt_mean": 0.7485658631557112,
+    "pesq_pesqopt_mean": 1.3741234342257183,
+    "stoi_balopt_mean": 0.7819859118377325,
+    "pesq_balopt_mean": 1.349956254164378,
+    "snr_balopt_mean": 3.798145662950334
+  },
+  "wiener": {
+    "count": 12,
+    "stoi_noisy_mean": 0.8120672767919696,
+    "pesq_noisy_mean": 1.2928548951943715,
+    "stoi_stoiopt_mean": 0.8148874138516381,
+    "pesq_stoiopt_mean": 1.3530983726183574,
+    "stoi_pesqopt_mean": 0.7757805669047291,
+    "pesq_pesqopt_mean": 1.516718904177348,
+    "stoi_balopt_mean": 0.8009575506544729,
+    "pesq_balopt_mean": 1.4790973563989003,
+    "snr_balopt_mean": 4.4670520581560975
+  },
+  "omlsa": {
+    "count": 12,
+    "stoi_noisy_mean": 0.8120672767919696,
+    "pesq_noisy_mean": 1.2928548951943715,
+    "stoi_stoiopt_mean": 0.8176064986332063,
+    "pesq_stoiopt_mean": 1.300764928261439,
+    "stoi_pesqopt_mean": 0.7839047356824631,
+    "pesq_pesqopt_mean": 1.530288964509964,
+    "stoi_balopt_mean": 0.8037843999858129,
+    "pesq_balopt_mean": 1.500413844982783,
+    "snr_balopt_mean": 4.961601677765612
+  }
+}
